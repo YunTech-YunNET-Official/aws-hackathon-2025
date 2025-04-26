@@ -49,14 +49,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     const option = document.createElement('option');
                     option.value = customer.id;
                     
-                    // 尋找名稱屬性作為顯示名稱
-                    const nameAttr = customer.attributes.find(attr => 
-                        ['姓名', '名字', '客戶名稱', 'name'].includes(attr.attribute.toLowerCase())
-                    );
-                    
-                    option.textContent
-                        ? `${customer.id}: ${nameAttr.value}` 
-                        : `客戶 #${customer.id}`;
+                    option.textContent = `客戶編號: ${customer.id}`;
                         
                     customerSelect.appendChild(option);
                 });
