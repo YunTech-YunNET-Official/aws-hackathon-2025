@@ -223,7 +223,7 @@ class SocketController {
                         content: response
                     });
                     
-                    // 發送到前端顯示對話內容
+                    // 發送到前端顯示對話內容（只要顯示一次）
                     socket.emit('transcriptionFinal', {
                         text: response,
                         role: 'assistant'

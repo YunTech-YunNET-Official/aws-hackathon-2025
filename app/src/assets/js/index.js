@@ -679,6 +679,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 currentAudio.pause();
                 currentAudio = null;
                 isTTSPlaying = false;
+                
+                // 清空音頻隊列，確保所有待播放的語音都被取消
+                audioQueue = [];
+                isProcessingQueue = false;
             }
         }
         
