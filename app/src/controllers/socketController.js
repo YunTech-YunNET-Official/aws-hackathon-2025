@@ -34,6 +34,7 @@ class SocketController {
             let currentConversationId = null;
             let currentCustomerId = null;
             let messageHistory = [];
+            let systemPrompt = '';
             
             // AWS Transcribe 相關設定與資料
             let isTranscribing = false;
@@ -49,6 +50,20 @@ class SocketController {
                     currentConversationId = data.conversationId;
                     if (data.customerId) {
                         currentCustomerId = data.customerId;
+                    }
+                    
+                    // 獲取對話資訊，包含 prompt
+                    try {
+                        const conversation = await prisma.conversation.findUnique({
+                            where: { id: parseInt(currentConversationId) }
+                        });
+                        
+                        if (conversation) {
+                            systemPrompt = conversation.prompt || '';
+                            console.log(`對話 #${currentConversationId} 的系統提示:`, systemPrompt);
+                        }
+                    } catch (err) {
+                        console.error('獲取對話資訊失敗:', err);
                     }
                     
                     // 載入對話歷史
@@ -180,10 +195,12 @@ class SocketController {
                         throw new Error('找不到對話記錄');
                     }
                     
+                    systemPrompt = conversation.prompt || '';
+                    
                     // 處理 LLM 請求
                     const [response, newHistory] = await chat(transcribedText, {
                         model: 'nova-pro',
-                        system: conversation.prompt,
+                        system: systemPrompt,
                         history: messageHistory
                     });
                     
@@ -247,7 +264,25 @@ class SocketController {
                     
                     currentConversationId = conversation.id;
                     currentCustomerId = data.customerId;
+                    systemPrompt = data.prompt || '';
                     messageHistory = [];
+                    
+                    // 將 prompt 作為 system 訊息保存
+                    if (systemPrompt) {
+                        await prisma.message.create({
+                            data: {
+                                conversationId: parseInt(currentConversationId),
+                                content: systemPrompt,
+                                role: 'system'
+                            }
+                        });
+                        
+                        // 更新歷史
+                        messageHistory.push({
+                            role: 'system',
+                            content: systemPrompt
+                        });
+                    }
                     
                     socket.emit('conversationStarted', {
                         id: conversation.id,

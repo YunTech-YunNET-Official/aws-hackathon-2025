@@ -99,6 +99,17 @@ class ConversationController {
                     }
                 });
                 
+                // 保存 prompt 作為 system 訊息
+                if (prompt) {
+                    await prisma.message.create({
+                        data: {
+                            conversationId: conversation.id,
+                            content: prompt,
+                            role: 'system'
+                        }
+                    });
+                }
+                
                 res.status(201).json({ success: true, id: conversation.id, message: '對話建立成功' });
             } catch (error) {
                 console.error('建立對話失敗:', error);

@@ -158,15 +158,14 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 自動產生 Prompt
     function generatePrompt(attributes) {
-        let promptText = '你現在是一位專業的銷售顧問，請依照以下客戶資料，提供友善且專業的回應：\n\n';
-        
+
+        let attrText = ''
+
         attributes.forEach(attr => {
-            promptText += `${attr.attribute}: ${attr.value}\n`;
+            attrText += `${attr.attribute}: ${attr.value}\n`;
         });
         
-        promptText += '\n請注意使用敬語，並且提供客戶有價值的資訊，避免過度推銷。';
-        
-        promptInput.value = promptText;
+        promptInput.value = getPrompt(attrText);
     }
     
     // 建立新對話
