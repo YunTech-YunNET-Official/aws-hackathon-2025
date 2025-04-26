@@ -1,6 +1,6 @@
 // tts.js
 import { writeFile } from 'node:fs/promises';
-import { tts } from '../config';
+import config from '../config/index.js';
 
 /**
  * 語音合成
@@ -11,12 +11,12 @@ import { tts } from '../config';
  * @param {string}  [opts.url=http://localhost:9880/] - TTS 服務位址
  * @returns {Promise<Buffer>}             - 二進位 wav 資料
  */
-export async function synthesize({
+export async function synthesize(
   text,
   textLanguage = 'zh',
-  cutPunc = tts.cutPunc,
-  url = tts.url,
-} = {}) {
+  cutPunc = config.tts.cutPunc,
+  url = config.tts.url,
+) {
   if (!text) throw new Error('text 參數不可為空');
 
   const payload = {

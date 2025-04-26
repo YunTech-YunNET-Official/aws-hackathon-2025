@@ -1,43 +1,338 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-time Transcription</title>
+    <title>電話銷售系統</title>
     <script src="/socket.io/socket.io.js"></script>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2ecc71;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+            --light-gray: #f5f5f5;
+            --border-color: #ddd;
+            --text-color: #333;
+            --shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Microsoft JhengHei', Arial, sans-serif;
+            color: var(--text-color);
+            background-color: var(--light-gray);
+            line-height: 1.6;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .page-container {
+            display: flex;
+            height: 100vh;
+        }
+        
+        /* 左側面板樣式 */
+        .left-panel {
+            width: 380px;
+            background-color: #fff;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            box-shadow: var(--shadow);
+        }
+        
+        .panel-header {
+            padding: 15px;
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .customer-selection {
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .customer-selection select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+        
+        .customer-info {
+            padding: 15px;
+            flex-grow: 1;
+            overflow-y: auto;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .attribute-item {
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px dashed var(--border-color);
+        }
+        
+        .attribute-name {
+            font-weight: bold;
+        }
+        
+        .prompt-section {
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .opening-section {
+            padding: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        textarea, input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            resize: vertical;
+        }
+        
+        textarea {
+            min-height: 80px;
+        }
+        
+        /* 右側面板樣式 */
+        .right-panel {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+        }
+        
+        .conversation-header {
+            padding: 15px;
+            background-color: #fff;
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: var(--shadow);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .conversation-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 15px;
+            background-color: #fff;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 8px;
+            max-width: 80%;
+            word-break: break-word;
+        }
+        
+        .user-message {
+            background-color: #dcf8c6;
+            margin-left: auto;
+            text-align: right;
+        }
+        
+        .assistant-message {
+            background-color: #f0f0f0;
+        }
+        
+        .message-time {
+            font-size: 0.8em;
+            color: #888;
+            margin-top: 5px;
+        }
+        
+        .status {
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #fff;
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .button-container {
+            display: flex;
+            padding: 15px;
+            background-color: #fff;
+            border-top: 1px solid var(--border-color);
+        }
+        
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        button:hover {
+            opacity: 0.9;
+        }
+        
+        .primary-btn {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .success-btn {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+        
+        .warning-btn {
+            background-color: var(--warning-color);
+            color: white;
+        }
+        
+        .danger-btn {
+            background-color: var(--danger-color);
+            color: white;
+        }
+        
+        .btn-disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .conversation-controls {
+            display: flex;
+        }
+
+        /* 對話歷史選擇 */
+        .conversation-selector {
+            margin-right: 10px;
+            min-width: 200px;
+        }
+
+        /* 錄音中的狀態指示器 */
+        #statusText {
+            display: inline-flex;
+            align-items: center;
+            font-weight: bold;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-left: 5px;
+        }
+        
+        .status-indicator.inactive {
+            background-color: #ccc;
+        }
+        
+        .status-indicator.recording {
+            background-color: red;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% {
+                transform: scale(0.8);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.2);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(0.8);
+                opacity: 1;
+            }
+        }
+    </style>
 </head>
 
 <body>
     <div class="page-container">
-        <div class="container">
-            <h1>Real-time Audio Transcription</h1>
+        <!-- 左側面板：客戶資料與設定 -->
+        <div class="left-panel">
+            <div class="panel-header">
+                <h2>客戶資料與設定</h2>
+            </div>
+
+            <div class="customer-selection">
+                <label for="customer-select">選擇客戶：</label>
+                <select id="customer-select">
+                    <option value="">-- 請選擇客戶 --</option>
+                </select>
+                <div style="margin-top: 10px; display: flex; justify-content: space-between;">
+                    <button id="new-conversation-btn" class="primary-btn">新增對話</button>
+                    <button id="reload-customers-btn" class="warning-btn">重新載入</button>
+                </div>
+            </div>
+
+            <div class="customer-info">
+                <h3>客戶資料</h3>
+                <div id="attributes-container">
+                    <!-- 客戶屬性會在此動態顯示 -->
+                    <p class="no-data">尚未選擇客戶</p>
+                </div>
+            </div>
+
+            <div class="prompt-section">
+                <label for="prompt-input">自定義 Prompt：</label>
+                <textarea id="prompt-input" placeholder="輸入與客戶交流時想要參考的提示語句..."></textarea>
+            </div>
+
+            <div class="opening-section">
+                <label for="opening-input">開場白：</label>
+                <input type="text" id="opening-input" placeholder="輸入對話開頭的語句...">
+                <div style="margin-top: 15px;">
+                    <button id="startButton" class="success-btn">開始對話</button>
+                    <button id="stopButton" class="danger-btn" disabled>結束對話</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右側面板：對話內容 -->
+        <div class="right-panel">
+            <div class="conversation-header">
+                <h2>對話內容</h2>
+                <div class="conversation-controls">
+                    <select id="history-select" class="conversation-selector">
+                        <option value="">-- 選擇歷史對話 --</option>
+                    </select>
+                    <button id="clearButton" class="warning-btn">清除內容</button>
+                </div>
+            </div>
+
+            <div class="conversation-container" id="conversation-container">
+                <!-- 對話內容會在此動態顯示 -->
+            </div>
+
             <div class="status">
-                Status: <span id="statusText">Not recording⚪</span>
-            </div>
-            <div class="button-container">
-                <button id="startButton">Start Transcription</button>
-                <button id="stopButton">Stop Transcription</button>
-                <button id="clearButton">Clear Transcript</button>
-            </div>
-            <div id="transcript"></div>
-            <div class="info-section">
-                <h2>How to use:</h2>
-                <ul>
-                    <li>Click "Start Transcription" to begin recording.</li>
-                    <li>Speak clearly into your microphone.</li>
-                    <li>Watch as your speech is transcribed in real-time.</li>
-                    <li>Click "Stop Transcription" when you're done.</li>
-                    <li>Use "Clear Transcript" to remove all transcribed text.</li>
-                </ul>
-            </div>
-            <div class="footer">
-                <p>© Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved. </p>
+                <div>
+                    狀態: <span id="statusText">未錄音 <span class="status-indicator inactive"></span></span>
+                </div>
             </div>
         </div>
     </div>
-    <script src="assets/js/index.js"></script>
+
+    <script src="/assets/js/index.js"></script>
 </body>
 
 </html>

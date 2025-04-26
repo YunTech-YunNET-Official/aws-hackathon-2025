@@ -1,116 +1,141 @@
-import transcriptionService from '../services/transcriptionService.js';
+import { Server } from 'socket.io';
+import { PrismaClient } from '../generated/prisma/index.js';
+import { chat } from '../utils/llm.js';
+
+const prisma = new PrismaClient();
 
 class SocketController {
     /**
-     * 初始化 Socket.IO 連接和事件處理
-     * @param {Object} io Socket.IO 實例
+     * 初始化 Socket.IO 控制器
+     * @param {Object} server HTTP服務器
      */
-    initialize(io) {
-        io.on('connection', this.handleConnection.bind(this));
+    initialize(server) {
+        this.io = new Server(server);
+        this.setupSocketHandlers();
     }
 
     /**
-     * 處理新的客戶端連接
-     * @param {Object} socket Socket.IO 客戶端連接
+     * 設置 Socket.IO 事件處理
      */
-    handleConnection(socket) {
-        console.log('Client connected');
-
-        // 使用 ref 對象來允許在閉包中修改這些值
-        const state = {
-            isTranscribing: { value: false },
-            buffer: { value: Buffer.alloc(0) },
-            globalTranscript: { value: '' }
-        };
-
-        // 註冊所有事件處理器
-        this.registerEventHandlers(socket, state);
-    }
-
-    /**
-     * 註冊所有事件處理器
-     * @param {Object} socket Socket.IO 客戶端連接
-     * @param {Object} state 狀態對象，包含 isTranscribing、buffer 和 globalTranscript
-     */
-    registerEventHandlers(socket, state) {
-        socket.on('startTranscription', () => this.handleStartTranscription(socket, state));
-        socket.on('audioData', (data) => this.handleAudioData(state, data));
-        socket.on('stopTranscription', () => (state.isTranscribing.value = false));
-        socket.on('disconnect', () => (state.isTranscribing.value = false));
-    }
-
-    /**
-     * 處理開始轉錄請求
-     * @param {Object} socket Socket.IO 客戶端連接
-     * @param {Object} state 狀態對象
-     */
-    async handleStartTranscription(socket, state) {
-        if (state.isTranscribing.value) return;
-        
-        state.isTranscribing.value = true;
-        state.buffer.value = Buffer.alloc(0);
-        state.globalTranscript.value = '';
-
-        try {
-            // 創建音頻流並開始轉錄
-            const audioStream = transcriptionService.createAudioStream(
-                state.buffer, 
-                state.isTranscribing
-            );
-
-            const response = await transcriptionService.startStreamTranscription(audioStream);
+    setupSocketHandlers() {
+        this.io.on('connection', (socket) => {
+            console.log('新的連線建立: ' + socket.id);
             
-            // 處理轉錄結果流
-            this.processTranscriptionStream(socket, state, response);
-        } catch (err) {
-            console.error('Transcribe error:', err);
-            socket.emit('error', `Transcribe error: ${err.message}`);
-        }
-    }
-
-    /**
-     * 處理音頻數據
-     * @param {Object} state 狀態對象
-     * @param {Buffer} data 收到的音頻數據
-     */
-    handleAudioData(state, data) {
-        if (state.isTranscribing.value) {
-            state.buffer.value = Buffer.concat([state.buffer.value, Buffer.from(data)]);
-        }
-    }
-
-    /**
-     * 處理轉錄結果流
-     * @param {Object} socket Socket.IO 客戶端連接
-     * @param {Object} state 狀態對象
-     * @param {Object} response 轉錄響應
-     */
-    async processTranscriptionStream(socket, state, response) {
-        try {
-            for await (const evt of response.TranscriptResultStream) {
-                const result = transcriptionService.processTranscriptEvent(evt);
-                if (!result) continue;
-
-                const { text, isPartial } = result;
-
-                if (isPartial) {
-                    socket.emit('transcription', { 
-                        global: state.globalTranscript.value,
-                        partial: text 
-                    });
-                } else {
-                    // 最終結果：更新 global，partial 清空
-                    state.globalTranscript.value += text + '<SEP>';
-                    socket.emit('transcription', { 
-                        global: state.globalTranscript.value,
-                        partial: '' 
-                    });
+            // 存儲當前對話ID
+            let currentConversationId = null;
+            
+            // 存儲 Google Cloud 相關設定與資料
+            let recognizeStream = null;
+            let audioBuffer = [];
+            let isStreaming = false;
+            let transcription = '';
+            
+            // 開始語音辨識串流
+            socket.on('startGoogleCloudStream', async (data) => {
+                if (isStreaming) return;
+                isStreaming = true;
+                
+                if (data && data.conversationId) {
+                    currentConversationId = data.conversationId;
                 }
-            }
-        } catch (err) {
-            console.error('Error processing transcript stream:', err);
-            socket.emit('error', `Error processing transcript: ${err.message}`);
-        }
+                
+                try {
+                    // 使用 Google Cloud Speech-to-Text 或其他語音辨識服務
+                    // 這裡是示範用的簡化版本
+                    // 實際實作需引入適當的語音辨識服務 SDK
+                    
+                    // 模擬建立辨識串流
+                    console.log('開始語音辨識串流', currentConversationId);
+                    
+                    // 重置緩存
+                    audioBuffer = [];
+                    transcription = '';
+                } catch (error) {
+                    console.error('啟動語音辨識失敗:', error);
+                    socket.emit('error', '啟動語音辨識失敗');
+                    isStreaming = false;
+                }
+            });
+            
+            // 接收語音資料
+            socket.on('binaryAudioData', (data) => {
+                if (!isStreaming) return;
+                
+                try {
+                    // 將語音資料加入緩存
+                    audioBuffer.push(data);
+                    
+                    // 這裡應該將資料傳送到實際的語音識別服務
+                    // 以下為模擬處理
+                    
+                    // 每累積一定量的資料就模擬一次中間結果
+                    if (audioBuffer.length % 5 === 0) {
+                        // 模擬中間結果
+                        socket.emit('transcription', {
+                            results: [{
+                                alternatives: [{
+                                    transcript: '正在處理...'
+                                }]
+                            }],
+                            isFinal: false
+                        });
+                    }
+                    
+                } catch (error) {
+                    console.error('處理語音資料失敗:', error);
+                }
+            });
+            
+            // 停止語音辨識串流
+            socket.on('stopGoogleCloudStream', () => {
+                if (!isStreaming) return;
+                
+                try {
+                    // 清理資源
+                    if (recognizeStream) {
+                        recognizeStream.end();
+                        recognizeStream = null;
+                    }
+                    
+                    // 模擬辨識完成結果
+                    if (audioBuffer.length > 0) {
+                        // 實際系統會從語音辨識服務獲得真實結果
+                        // 這裡僅是模擬
+                        socket.emit('transcription', {
+                            results: [{
+                                alternatives: [{
+                                    transcript: '這是一個模擬的語音辨識結果。'
+                                }]
+                            }],
+                            isFinal: true
+                        });
+                    }
+                    
+                    // 重置狀態
+                    isStreaming = false;
+                    audioBuffer = [];
+                    console.log('語音辨識串流結束');
+                } catch (error) {
+                    console.error('停止語音辨識失敗:', error);
+                    isStreaming = false;
+                    audioBuffer = [];
+                }
+            });
+            
+            // 斷開連接
+            socket.on('disconnect', () => {
+                console.log('連線關閉: ' + socket.id);
+                
+                // 清理資源
+                if (recognizeStream) {
+                    recognizeStream.end();
+                    recognizeStream = null;
+                }
+                
+                isStreaming = false;
+                audioBuffer = [];
+            });
+        });
     }
 }
 

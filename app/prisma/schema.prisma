@@ -14,31 +14,85 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// 客戶主表：每一位客戶為一筆資料
+/// Customer table: One record per customer
 model Customer {
-  /// 客代（主鍵，對應原表「客代」欄位）
-  id              Int                    @id @default(autoincrement()) @map("客代")
+  /// Customer ID (primary key)
+  id Int @id @default(autoincrement()) @map("customer_id")
 
-  /// EAV 屬性關聯清單
-  attributes      CustomerAttribute[]    
+  /// EAV attributes relationship list
+  attributes CustomerAttribute[]
+  
+  /// Customer related conversations
+  conversations Conversation[]
 
-  @@map("processed_data")
+  @@map("customers")
 }
 
-/// EAV 屬性表：以鍵值對形式儲存各種屬性
+/// Customer attribute table: Store customer attributes using EAV model
 model CustomerAttribute {
-  /// 自動遞增主鍵
-  id              Int         @id @default(autoincrement())
+  /// Attribute ID
+  id Int @id @default(autoincrement())
 
-  /// 外鍵關聯至 Customer
-  customer        Customer    @relation(fields: [customerId], references: [id])
-  customerId      Int         @map("客代")
+  /// Related customer ID
+  customerId Int @map("customer_id")
+  
+  /// Attribute name
+  attribute String
+  
+  /// Attribute value
+  value String @db.Text
 
-  /// 屬性名稱
-  attribute       String      @map("屬性名稱")
-
-  /// 屬性對應值
-  value           String      @map("值")
+  /// Customer relationship
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@map("customer_attributes")
+}
+
+/// Conversation record table: Store conversations with customers
+model Conversation {
+  /// Conversation ID
+  id Int @id @default(autoincrement())
+
+  /// Related customer ID
+  customerId Int @map("customer_id")
+
+  /// Conversation system prompt
+  prompt String? @db.Text
+  
+  /// Creation time
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// Update time
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  /// Customer relationship
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  /// Conversation messages
+  messages Message[]
+
+  @@map("conversations")
+}
+
+/// Message table: Store individual messages in conversations
+model Message {
+  /// Message ID
+  id Int @id @default(autoincrement())
+  
+  /// Related conversation ID
+  conversationId Int @map("conversation_id")
+  
+  /// Message role (user/assistant)
+  role String
+  
+  /// Message content
+  content String @db.Text
+  
+  /// Message timestamp
+  timestamp DateTime @default(now())
+  
+  /// Conversation relationship
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
 }
