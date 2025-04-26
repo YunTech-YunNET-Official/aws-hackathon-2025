@@ -23,8 +23,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let isRecording = false;
     let messageHistory = [];
     let isFirstInteraction = true;
-    let currentAudio = null; // 追蹤當前播放的音頻
-    let isWaitingForResponse = false; // 追蹤是否正在等待 AI 回應
     
     // 載入客戶資料
     function loadCustomerData() {
@@ -404,12 +402,8 @@ document.addEventListener('DOMContentLoaded', function() {
     function playAudio(audioUrl) {
         console.log('播放音頻 (data URL)');
         
-        // 如果有正在播放的音頻，先停止它
-        stopCurrentAudio();
-        
         // 創建一個新的音頻元素
         const audio = new Audio();
-        currentAudio = audio;
         
         // 設置音頻數據
         audio.src = audioUrl;
@@ -417,44 +411,22 @@ document.addEventListener('DOMContentLoaded', function() {
         // 監聽錯誤
         audio.onerror = (e) => {
             console.error('音頻播放失敗:', e);
-            currentAudio = null;
         };
         
         // 監聽播放開始
         audio.onplay = () => {
             console.log('開始播放音頻');
-            // 播放時暫停錄音
-            if (isRecording) {
-                pauseRecording();
-            }
         };
         
         // 監聽播放結束
         audio.onended = () => {
             console.log('音頻播放完成');
-            currentAudio = null;
-            
-            // 音頻播放完畢後，如果不是等待回應狀態，則重新開始錄音
-            if (isRecording && !isWaitingForResponse) {
-                resumeRecording();
-            }
         };
         
         // 播放音頻
         audio.play().catch(error => {
             console.error('播放音頻時發生錯誤:', error);
-            currentAudio = null;
         });
-    }
-    
-    // 停止當前正在播放的音頻
-    function stopCurrentAudio() {
-        if (currentAudio) {
-            console.log('停止當前播放的音頻');
-            currentAudio.pause();
-            currentAudio.currentTime = 0;
-            currentAudio = null;
-        }
     }
     
     // 開始錄音
@@ -486,19 +458,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // 將音頻數據發送到服務器
                 processor.onaudioprocess = function(e) {
-                    if (!isRecording || isWaitingForResponse) return;
+                    if (!isRecording) return;
                     
                     const f32 = e.inputBuffer.getChannelData(0);
                     const i16 = new Int16Array(f32.length);
                     for (let i = 0; i < f32.length; ++i)
                         i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768));
-                    
-                    // 檢測到語音時暫停任何播放中的音頻
-                    const hasSound = detectSound(f32);
-                    if (hasSound && currentAudio) {
-                        stopCurrentAudio();
-                    }
-                    
                     socket.emit('binaryAudioData', i16.buffer);
                 };
                 
@@ -515,48 +480,9 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
     
-    // 檢測音頻數據是否包含聲音（簡單的能量檢測）
-    function detectSound(audioData, threshold = 0.01) {
-        let sum = 0;
-        const len = audioData.length;
-        
-        // 計算音頻數據的平均能量
-        for (let i = 0; i < len; i++) {
-            sum += Math.abs(audioData[i]);
-        }
-        
-        const average = sum / len;
-        return average > threshold;
-    }
-    
-    // 暫停錄音（關閉麥克風但保持錄音狀態）
-    function pauseRecording() {
-        if (!window.localStream) return;
-        
-        // 暫時關閉麥克風軌道
-        window.localStream.getAudioTracks().forEach(track => {
-            track.enabled = false;
-        });
-        
-        statusText.innerHTML = '錄音已暫停 <span class="status-indicator paused"></span>';
-    }
-    
-    // 恢復錄音
-    function resumeRecording() {
-        if (!window.localStream) return;
-        
-        // 重新啟用麥克風軌道
-        window.localStream.getAudioTracks().forEach(track => {
-            track.enabled = true;
-        });
-        
-        statusText.innerHTML = '正在錄音 <span class="status-indicator recording"></span>';
-    }
-    
     // 停止錄音
     function stopRecording() {
         isRecording = false;
-        isWaitingForResponse = false;
         startButton.disabled = false;
         stopButton.disabled = true;
         
@@ -575,10 +501,6 @@ document.addEventListener('DOMContentLoaded', function() {
             window.audioProcessor.disconnect();
             window.audioContext.close().catch(() => console.log('關閉音頻上下文失敗'));
         }
-        
-        window.localStream = null;
-        window.audioProcessor = null;
-        window.audioContext = null;
     }
     
     // 將浮點數轉換為整數 (用於音頻傳輸)
@@ -629,19 +551,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 添加正式消息
         addMessage(data.text, data.role);
-        
-        // 如果是用戶訊息，標記為等待回應狀態，暫停錄音
-        if (data.role === 'user') {
-            isWaitingForResponse = true;
-            pauseRecording();
-        } 
-        // 如果是助手訊息，取消等待狀態，恢復錄音（若處於錄音模式）
-        else if (data.role === 'assistant') {
-            isWaitingForResponse = false;
-            if (isRecording && !currentAudio) {
-                resumeRecording();
-            }
-        }
     });
     
     // 監聽 TTS 返回結果
