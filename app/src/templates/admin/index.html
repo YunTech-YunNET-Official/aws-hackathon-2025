@@ -52,6 +52,29 @@
         .btn:hover {
             background-color: #2980b9;
         }
+        .btn-success {
+            background-color: #2ecc71;
+        }
+        .btn-success:hover {
+            background-color: #27ae60;
+        }
+        .btn-warning {
+            background-color: #f39c12;
+        }
+        .btn-warning:hover {
+            background-color: #e67e22;
+        }
+        .btn-danger {
+            background-color: #e74c3c;
+        }
+        .btn-danger:hover {
+            background-color: #c0392b;
+        }
+        .action-btn {
+            padding: 5px 10px;
+            margin-right: 5px;
+            font-size: 12px;
+        }
         .customer-table {
             width: 100%;
             border-collapse: collapse;
@@ -110,6 +133,72 @@
         .attribute-name {
             font-weight: bold;
         }
+        /* 新增樣式 */
+        .actions-col {
+            min-width: 120px;
+        }
+        .data-actions {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            overflow: auto;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 10% auto;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            width: 80%;
+            max-width: 700px;
+        }
+        .close-modal {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close-modal:hover {
+            color: black;
+        }
+        .attribute-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+        .attribute-input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .add-attribute-btn {
+            margin-top: 10px;
+        }
+        .remove-attribute-btn {
+            color: #e74c3c;
+            cursor: pointer;
+            font-size: 20px;
+            font-weight: bold;
+        }
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 20px;
+            gap: 10px;
+        }
     </style>
 </head>
 <body>
@@ -132,9 +221,67 @@
         
         <div class="data-section">
             <h2>客戶資料</h2>
-            <button id="refresh-btn" class="btn">重新載入資料</button>
+            <div class="data-actions">
+                <button id="refresh-btn" class="btn">重新載入資料</button>
+                <button id="add-customer-btn" class="btn btn-success">新增客戶</button>
+            </div>
             <div id="customer-data-container">
                 <p class="loading">正在載入資料...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增客戶Modal -->
+    <div id="add-customer-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="close-add-modal">&times;</span>
+            <h2>新增客戶</h2>
+            <form id="add-customer-form">
+                <div id="add-attributes-container">
+                    <div class="attribute-row">
+                        <input type="text" class="attribute-input attribute-name-input" placeholder="屬性名稱" required>
+                        <input type="text" class="attribute-input attribute-value-input" placeholder="屬性值" required>
+                        <span class="remove-attribute-btn">&times;</span>
+                    </div>
+                </div>
+                <button type="button" id="add-attribute-btn" class="btn add-attribute-btn">新增另一個屬性</button>
+                <div class="modal-footer">
+                    <button type="button" class="btn" id="cancel-add-btn">取消</button>
+                    <button type="submit" class="btn btn-success">新增客戶</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 編輯客戶Modal -->
+    <div id="edit-customer-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="close-edit-modal">&times;</span>
+            <h2>編輯客戶資料</h2>
+            <form id="edit-customer-form">
+                <input type="hidden" id="edit-customer-id">
+                <div id="edit-attributes-container">
+                    <!-- 編輯時動態填入 -->
+                </div>
+                <button type="button" id="edit-add-attribute-btn" class="btn add-attribute-btn">新增另一個屬性</button>
+                <div class="modal-footer">
+                    <button type="button" class="btn" id="cancel-edit-btn">取消</button>
+                    <button type="submit" class="btn btn-warning">儲存變更</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 確認刪除的 Modal -->
+    <div id="confirm-delete-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="close-delete-modal">&times;</span>
+            <h2>確認刪除</h2>
+            <p>您確定要刪除此客戶資料嗎？此操作無法復原。</p>
+            <input type="hidden" id="delete-customer-id">
+            <div class="modal-footer">
+                <button type="button" class="btn" id="cancel-delete-btn">取消</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete-btn">確認刪除</button>
             </div>
         </div>
     </div>
@@ -145,6 +292,25 @@
             const messageContainer = document.getElementById('message-container');
             const refreshBtn = document.getElementById('refresh-btn');
             const customerDataContainer = document.getElementById('customer-data-container');
+            
+            // 新增的元素
+            const addCustomerBtn = document.getElementById('add-customer-btn');
+            const addCustomerModal = document.getElementById('add-customer-modal');
+            const editCustomerModal = document.getElementById('edit-customer-modal');
+            const confirmDeleteModal = document.getElementById('confirm-delete-modal');
+            const addCustomerForm = document.getElementById('add-customer-form');
+            const editCustomerForm = document.getElementById('edit-customer-form');
+            const closeAddModal = document.getElementById('close-add-modal');
+            const closeEditModal = document.getElementById('close-edit-modal');
+            const closeDeleteModal = document.getElementById('close-delete-modal');
+            const addAttributeBtn = document.getElementById('add-attribute-btn');
+            const editAddAttributeBtn = document.getElementById('edit-add-attribute-btn');
+            const cancelAddBtn = document.getElementById('cancel-add-btn');
+            const cancelEditBtn = document.getElementById('cancel-edit-btn');
+            const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+            const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+            const deleteCustomerId = document.getElementById('delete-customer-id');
+            const editCustomerId = document.getElementById('edit-customer-id');
             
             // 顯示訊息函數
             function showMessage(message, type) {
@@ -190,6 +356,7 @@
                         headerRow.innerHTML = `
                             <th>客代</th>
                             <th>屬性</th>
+                            <th>操作</th>
                         `;
                         thead.appendChild(headerRow);
                         table.appendChild(thead);
@@ -226,18 +393,273 @@
                             attributesCell.appendChild(attributesList);
                             row.appendChild(attributesCell);
                             
+                            // 操作欄位
+                            const actionsCell = document.createElement('td');
+                            actionsCell.className = 'actions-col';
+                            actionsCell.innerHTML = `
+                                <button class="btn btn-warning action-btn edit-btn" data-id="${customer.id}">編輯</button>
+                                <button class="btn btn-danger action-btn delete-btn" data-id="${customer.id}">刪除</button>
+                            `;
+                            row.appendChild(actionsCell);
+                            
                             tbody.appendChild(row);
                         });
                         
                         table.appendChild(tbody);
                         customerDataContainer.innerHTML = '';
                         customerDataContainer.appendChild(table);
+                        
+                        // 綁定編輯和刪除按鈕事件
+                        document.querySelectorAll('.edit-btn').forEach(btn => {
+                            btn.addEventListener('click', function() {
+                                const customerId = this.getAttribute('data-id');
+                                openEditModal(customerId);
+                            });
+                        });
+                        
+                        document.querySelectorAll('.delete-btn').forEach(btn => {
+                            btn.addEventListener('click', function() {
+                                const customerId = this.getAttribute('data-id');
+                                openDeleteModal(customerId);
+                            });
+                        });
                     })
                     .catch(error => {
                         console.error('獲取客戶資料失敗:', error);
                         customerDataContainer.innerHTML = `<p class="error">無法載入資料: ${error.message}</p>`;
                     });
             }
+            
+            // 新增一個屬性輸入行
+            function addAttributeInputRow(container, attributeName = '', attributeValue = '') {
+                const row = document.createElement('div');
+                row.className = 'attribute-row';
+                row.innerHTML = `
+                    <input type="text" class="attribute-input attribute-name-input" placeholder="屬性名稱" value="${attributeName}" required>
+                    <input type="text" class="attribute-input attribute-value-input" placeholder="屬性值" value="${attributeValue}" required>
+                    <span class="remove-attribute-btn">&times;</span>
+                `;
+                
+                const removeBtn = row.querySelector('.remove-attribute-btn');
+                removeBtn.addEventListener('click', function() {
+                    if (container.children.length > 1) {
+                        container.removeChild(row);
+                    } else {
+                        // 如果只剩一個屬性行，只清空輸入框
+                        const inputs = row.querySelectorAll('input');
+                        inputs.forEach(input => input.value = '');
+                    }
+                });
+                
+                container.appendChild(row);
+                return row;
+            }
+            
+            // 打開新增客戶 Modal
+            function openAddModal() {
+                // 重置表單
+                const attributesContainer = document.getElementById('add-attributes-container');
+                attributesContainer.innerHTML = '';
+                addAttributeInputRow(attributesContainer);
+                
+                addCustomerModal.style.display = 'block';
+            }
+            
+            // 打開編輯客戶 Modal
+            function openEditModal(customerId) {
+                editCustomerId.value = customerId;
+                const attributesContainer = document.getElementById('edit-attributes-container');
+                attributesContainer.innerHTML = '<p class="loading">載入中...</p>';
+                
+                // 獲取客戶資料
+                fetch(`/admin/api/customers/${customerId}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('獲取客戶資料失敗');
+                        }
+                        return response.json();
+                    })
+                    .then(customer => {
+                        attributesContainer.innerHTML = '';
+                        
+                        if (customer.attributes && customer.attributes.length > 0) {
+                            customer.attributes.forEach(attr => {
+                                addAttributeInputRow(attributesContainer, attr.attribute, attr.value);
+                            });
+                        } else {
+                            addAttributeInputRow(attributesContainer);
+                        }
+                        
+                        editCustomerModal.style.display = 'block';
+                    })
+                    .catch(error => {
+                        console.error('獲取客戶資料失敗:', error);
+                        showMessage('獲取客戶資料失敗: ' + error.message, 'error');
+                    });
+            }
+            
+            // 打開刪除確認 Modal
+            function openDeleteModal(customerId) {
+                deleteCustomerId.value = customerId;
+                confirmDeleteModal.style.display = 'block';
+            }
+            
+            // 收集表單屬性資料
+            function collectAttributes(container) {
+                const attributes = [];
+                const rows = container.querySelectorAll('.attribute-row');
+                
+                rows.forEach(row => {
+                    const nameInput = row.querySelector('.attribute-name-input');
+                    const valueInput = row.querySelector('.attribute-value-input');
+                    
+                    if (nameInput.value.trim() && valueInput.value.trim()) {
+                        attributes.push({
+                            attribute: nameInput.value.trim(),
+                            value: valueInput.value.trim()
+                        });
+                    }
+                });
+                
+                return attributes;
+            }
+            
+            // 新增客戶提交處理
+            addCustomerForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const attributesContainer = document.getElementById('add-attributes-container');
+                const attributes = collectAttributes(attributesContainer);
+                
+                if (attributes.length === 0) {
+                    showMessage('請至少添加一個有效屬性', 'error');
+                    return;
+                }
+                
+                fetch('/admin/api/customers', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ attributes })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                        addCustomerModal.style.display = 'none';
+                        loadCustomerData(); // 重新載入資料
+                    } else {
+                        showMessage(data.error || '新增客戶失敗', 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('新增客戶失敗:', error);
+                    showMessage('新增客戶失敗: ' + error.message, 'error');
+                });
+            });
+            
+            // 編輯客戶提交處理
+            editCustomerForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const customerId = editCustomerId.value;
+                const attributesContainer = document.getElementById('edit-attributes-container');
+                const attributes = collectAttributes(attributesContainer);
+                
+                if (attributes.length === 0) {
+                    showMessage('請至少添加一個有效屬性', 'error');
+                    return;
+                }
+                
+                fetch(`/admin/api/customers/${customerId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ attributes })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                        editCustomerModal.style.display = 'none';
+                        loadCustomerData(); // 重新載入資料
+                    } else {
+                        showMessage(data.error || '更新客戶資料失敗', 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('更新客戶資料失敗:', error);
+                    showMessage('更新客戶資料失敗: ' + error.message, 'error');
+                });
+            });
+            
+            // 確認刪除客戶
+            confirmDeleteBtn.addEventListener('click', function() {
+                const customerId = deleteCustomerId.value;
+                
+                fetch(`/admin/api/customers/${customerId}`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                        confirmDeleteModal.style.display = 'none';
+                        loadCustomerData(); // 重新載入資料
+                    } else {
+                        showMessage(data.error || '刪除客戶資料失敗', 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('刪除客戶資料失敗:', error);
+                    showMessage('刪除客戶資料失敗: ' + error.message, 'error');
+                });
+            });
+            
+            // 新增屬性按鈕事件
+            addAttributeBtn.addEventListener('click', function() {
+                addAttributeInputRow(document.getElementById('add-attributes-container'));
+            });
+            
+            editAddAttributeBtn.addEventListener('click', function() {
+                addAttributeInputRow(document.getElementById('edit-attributes-container'));
+            });
+            
+            // Modal 相關事件
+            addCustomerBtn.addEventListener('click', openAddModal);
+            
+            closeAddModal.addEventListener('click', function() {
+                addCustomerModal.style.display = 'none';
+            });
+            
+            closeEditModal.addEventListener('click', function() {
+                editCustomerModal.style.display = 'none';
+            });
+            
+            closeDeleteModal.addEventListener('click', function() {
+                confirmDeleteModal.style.display = 'none';
+            });
+            
+            cancelAddBtn.addEventListener('click', function() {
+                addCustomerModal.style.display = 'none';
+            });
+            
+            cancelEditBtn.addEventListener('click', function() {
+                editCustomerModal.style.display = 'none';
+            });
+            
+            cancelDeleteBtn.addEventListener('click', function() {
+                confirmDeleteModal.style.display = 'none';
+            });
+            
+            // 點擊 Modal 外部關閉
+            window.addEventListener('click', function(e) {
+                if (e.target === addCustomerModal) addCustomerModal.style.display = 'none';
+                if (e.target === editCustomerModal) editCustomerModal.style.display = 'none';
+                if (e.target === confirmDeleteModal) confirmDeleteModal.style.display = 'none';
+            });
             
             // 上傳檔案
             uploadForm.addEventListener('submit', function(e) {
