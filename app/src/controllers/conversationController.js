@@ -120,7 +120,7 @@ class ConversationController {
         // 處理對話訊息
         router.post('/api/chat', express.json(), async (req, res) => {
             try {
-                const { conversationId, text, customerId, history } = req.body;
+                const { conversationId, text, customerId, history, isOpening } = req.body;
                 
                 if (!conversationId || !text) {
                     return res.status(400).json({ error: '缺少必要參數' });
@@ -152,12 +152,29 @@ class ConversationController {
                     content: msg.content
                 }));
                 
+                // 如果是開場白，加入特殊提示詞
+                let promptText = conversation.prompt;
+                if (isOpening) {
+                    promptText = `${conversation.prompt}\n\n這是對話的開始，請你作為銷售人員主動開場，介紹自己並開始對話。開場白須簡短友善，並能引起客戶興趣。`;
+                }
+                
                 // 處理 LLM 請求
                 const [response, newHistory] = await chat(text, {
                     model: 'nova-pro',  // 或其他適合的模型
-                    system: conversation.prompt,
+                    system: promptText,
                     history: messageHistory
                 });
+                
+                // 將使用者輸入儲存到資料庫，但僅在非開場模式或有實際輸入內容時
+                if (!isOpening || text !== '開始對話') {
+                    await prisma.message.create({
+                        data: {
+                            conversationId: parseInt(conversationId),
+                            role: 'user',
+                            content: text
+                        }
+                    });
+                }
                 
                 // 將 AI 回應儲存到資料庫
                 await prisma.message.create({

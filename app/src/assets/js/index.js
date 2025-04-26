@@ -23,6 +23,9 @@ document.addEventListener('DOMContentLoaded', function() {
     let isRecording = false;
     let messageHistory = [];
     let isFirstInteraction = true;
+    // 新增：TTS播放控制相關變數
+    let currentAudio = null;
+    let isTTSPlaying = false;
     
     // 載入客戶資料
     function loadCustomerData() {
@@ -267,22 +270,26 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        if (openingInput.value.trim() && isFirstInteraction) {
-            // 發送開場白
-            const openingText = openingInput.value.trim();
-            addMessage(openingText, 'user');
+        if (isFirstInteraction) {
+            // 顯示規劃中訊息
+            const planningMessage = document.createElement('div');
+            planningMessage.className = 'message system-message';
+            planningMessage.id = 'planning-message';
+            planningMessage.textContent = '規劃中...';
+            conversationContainer.appendChild(planningMessage);
+            conversationContainer.scrollTop = conversationContainer.scrollHeight;
             
-            // 保存對話記錄
-            saveMessage(openingText, 'user');
+            const openingText = openingInput.value.trim() || '開始對話';
             
-            // 發送到 LLM 並取得回覆
+            // 發送到 LLM 以獲取開場白
             fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     conversationId: currentConversationId,
                     text: openingText,
-                    customerId: currentCustomerId
+                    customerId: currentCustomerId,
+                    isOpening: true
                 })
             })
             .then(response => {
@@ -290,16 +297,85 @@ document.addEventListener('DOMContentLoaded', function() {
                 return response.json();
             })
             .then(data => {
-                // 顯示 AI 回覆並播放語音
-                addMessage(data.response, 'assistant');
-                playTTS(data.response);
-                isFirstInteraction = false;
+                // 保存開場白資料，若有開場白內容則保存
+                if (openingInput.value.trim()) {
+                    saveMessage(openingInput.value.trim(), 'system');
+                }
                 
-                // 啟動語音辨識
-                startRecording();
+                // 獲取 TTS 但暫不顯示開場白
+                console.log('獲取 TTS 中，開場白:', data.response.substring(0, 30) + '...');
+                
+                // 更新規劃中訊息
+                const planningMsg = document.getElementById('planning-message');
+                if (planningMsg) planningMsg.textContent = 'TTS 準備中...';
+                
+                // 先保存 AI 回應到資料庫
+                saveMessage(data.response, 'assistant');
+                
+                // 若 API 返回了預先生成的 audioUrl，則直接使用
+                if (data.audioUrl) {
+                    // 移除規劃中訊息
+                    if (planningMsg) planningMsg.remove();
+                    
+                    // 顯示 AI 開場白並播放語音
+                    addMessage(data.response, 'assistant');
+                    playAudio(data.audioUrl);
+                    isFirstInteraction = false;
+                    
+                    // 啟動語音辨識
+                    startRecording();
+                } else {
+                    // 否則需要單獨請求 TTS
+                    fetch('/api/tts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: data.response })
+                    })
+                    .then(response => {
+                        if (!response.ok) throw new Error(`TTS 處理失敗: ${response.status}`);
+                        return response.json();
+                    })
+                    .then(ttsData => {
+                        // 移除規劃中訊息
+                        if (planningMsg) planningMsg.remove();
+                        
+                        // 顯示 AI 開場白並播放語音
+                        addMessage(data.response, 'assistant');
+                        
+                        if (ttsData.audioUrl) {
+                            playAudio(ttsData.audioUrl);
+                        } else {
+                            console.error('TTS 回應中沒有音頻 URL');
+                        }
+                        
+                        isFirstInteraction = false;
+                        
+                        // 啟動語音辨識
+                        startRecording();
+                    })
+                    .catch(error => {
+                        console.error('TTS 處理失敗:', error);
+                        
+                        // 移除規劃中訊息
+                        if (planningMsg) planningMsg.remove();
+                        
+                        // 仍然顯示開場白，但無法播放語音
+                        addMessage(data.response, 'assistant');
+                        alert('TTS 處理失敗: ' + error.message);
+                        isFirstInteraction = false;
+                        
+                        // 啟動語音辨識
+                        startRecording();
+                    });
+                }
             })
             .catch(error => {
                 console.error('對話處理失敗:', error);
+                
+                // 移除規劃中訊息
+                const planningMsg = document.getElementById('planning-message');
+                if (planningMsg) planningMsg.remove();
+                
                 alert('對話處理失敗: ' + error.message);
             });
         } else {
@@ -402,30 +478,45 @@ document.addEventListener('DOMContentLoaded', function() {
     function playAudio(audioUrl) {
         console.log('播放音頻 (data URL)');
         
+        // 如果有正在播放的音頻，先停止它
+        if (currentAudio) {
+            currentAudio.pause();
+            currentAudio = null;
+        }
+        
         // 創建一個新的音頻元素
         const audio = new Audio();
+        currentAudio = audio;
         
         // 設置音頻數據
         audio.src = audioUrl;
         
+        // 設置TTS播放狀態
+        isTTSPlaying = true;
+        
         // 監聽錯誤
         audio.onerror = (e) => {
             console.error('音頻播放失敗:', e);
+            isTTSPlaying = false;
         };
         
         // 監聽播放開始
         audio.onplay = () => {
             console.log('開始播放音頻');
+            isTTSPlaying = true;
         };
         
         // 監聽播放結束
         audio.onended = () => {
             console.log('音頻播放完成');
+            isTTSPlaying = false;
+            currentAudio = null;
         };
         
         // 播放音頻
         audio.play().catch(error => {
             console.error('播放音頻時發生錯誤:', error);
+            isTTSPlaying = false;
         });
     }
     
@@ -518,6 +609,16 @@ document.addEventListener('DOMContentLoaded', function() {
     // 監聽轉錄結果
     socket.on('transcription', function(data) {
         console.log('收到轉錄結果:', data);
+        
+        // 檢查是否應該打斷TTS播放
+        if (isTTSPlaying && data.partial && data.partial.trim().length > 1) {
+            console.log('用戶開始說話，打斷TTS播放');
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+                isTTSPlaying = false;
+            }
+        }
         
         // 顯示即時轉錄結果
         const transcriptDiv = document.createElement('div');
