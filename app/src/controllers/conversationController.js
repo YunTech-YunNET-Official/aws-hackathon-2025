@@ -156,12 +156,17 @@ class ConversationController {
                         content: response
                     }
                 });
+                
                 // 合成語音
-                const audioUrl = await synthesize(response);
+                const audioBuffer = await synthesize(response);
+                
+                // 將音頻緩衝區轉換為 base64 數據 URL
+                const base64Audio = audioBuffer.toString('base64');
+                const audioDataUrl = `data:audio/wav;base64,${base64Audio}`;
                 
                 res.json({
                     response,
-                    audioUrl
+                    audioUrl: audioDataUrl
                 });
             } catch (error) {
                 console.error('處理對話失敗:', error);
@@ -203,9 +208,13 @@ class ConversationController {
                 }
                 
                 // 調用 TTS 服務
-                const audioUrl = await synthesize(text);
+                const audioBuffer = await synthesize(text);
                 
-                res.json({ audioUrl });
+                // 將音頻緩衝區轉換為 base64 數據 URL
+                const base64Audio = audioBuffer.toString('base64');
+                const audioDataUrl = `data:audio/wav;base64,${base64Audio}`;
+                
+                res.json({ audioUrl: audioDataUrl });
             } catch (error) {
                 console.error('TTS 處理失敗:', error);
                 res.status(500).json({ error: '語音合成失敗' });

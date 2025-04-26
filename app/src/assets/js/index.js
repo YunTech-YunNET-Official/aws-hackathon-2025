@@ -372,20 +372,50 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 播放 TTS
     function playTTS(text) {
+        console.log('正在處理 TTS 請求:', text.substring(0, 30) + '...');
+        
         fetch('/api/tts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text })
         })
         .then(response => {
-            if (!response.ok) throw new Error('TTS 處理失敗');
+            if (!response.ok) throw new Error(`TTS 處理失敗: ${response.status}`);
             return response.json();
         })
         .then(data => {
-            // 假設 API 返回音頻 URL
+            console.log('收到 TTS 回應');
+            
             if (data.audioUrl) {
-                const audio = new Audio(data.audioUrl);
-                audio.play();
+                console.log('播放音頻 (data URL)');
+                
+                // 創建一個新的音頻元素
+                const audio = new Audio();
+                
+                // 設置音頻數據
+                audio.src = data.audioUrl;
+                
+                // 監聽錯誤
+                audio.onerror = (e) => {
+                    console.error('音頻播放失敗:', e);
+                };
+                
+                // 監聽播放開始
+                audio.onplay = () => {
+                    console.log('開始播放音頻');
+                };
+                
+                // 監聽播放結束
+                audio.onended = () => {
+                    console.log('音頻播放完成');
+                };
+                
+                // 播放音頻
+                audio.play().catch(error => {
+                    console.error('播放音頻時發生錯誤:', error);
+                });
+            } else {
+                console.error('回應中沒有音頻 URL');
             }
         })
         .catch(error => {
