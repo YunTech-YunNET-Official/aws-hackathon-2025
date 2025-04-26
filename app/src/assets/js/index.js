@@ -23,9 +23,15 @@ document.addEventListener('DOMContentLoaded', function() {
     let isRecording = false;
     let messageHistory = [];
     let isFirstInteraction = true;
-    // 新增：TTS播放控制相關變數
+    
+    // TTS播放控制相關變數
     let currentAudio = null;
     let isTTSPlaying = false;
+    let audioQueue = [];        // 音頻隊列
+    let isProcessingQueue = false;  // 是否正在處理隊列
+    const SOFT_PUNCTUATION = '、，：';  // 軟分段符號
+    const HARD_PUNCTUATION = '！？。；';  // 硬分段符號
+    let ttsSegments = [];       // TTS 分段文本
     
     // 載入客戶資料
     function loadCustomerData() {
@@ -48,7 +54,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         ['姓名', '名字', '客戶名稱', 'name'].includes(attr.attribute.toLowerCase())
                     );
                     
-                    option.textContent = nameAttr 
+                    option.textContent
                         ? `${customer.id}: ${nameAttr.value}` 
                         : `客戶 #${customer.id}`;
                         
@@ -464,7 +470,11 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('收到 TTS 回應');
             
             if (data.audioUrl) {
-                playAudio(data.audioUrl);
+                // 添加到音頻隊列並處理
+                audioQueue.push(data.audioUrl);
+                if (!isTTSPlaying) {
+                    processAudioQueue();
+                }
             } else {
                 console.error('回應中沒有音頻 URL');
             }
@@ -498,6 +508,9 @@ document.addEventListener('DOMContentLoaded', function() {
         audio.onerror = (e) => {
             console.error('音頻播放失敗:', e);
             isTTSPlaying = false;
+            currentAudio = null;
+            // 處理下一個音頻段落
+            setTimeout(processAudioQueue, 1000);
         };
         
         // 監聽播放開始
@@ -511,13 +524,69 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('音頻播放完成');
             isTTSPlaying = false;
             currentAudio = null;
+            // 處理音頻隊列中的下一個音頻，添加1秒延遲
+            setTimeout(processAudioQueue, 1000);
         };
         
         // 播放音頻
         audio.play().catch(error => {
             console.error('播放音頻時發生錯誤:', error);
             isTTSPlaying = false;
+            currentAudio = null;
+            // 發生錯誤時也嘗試播放下一段
+            setTimeout(processAudioQueue, 1000);
         });
+    }
+    
+    // 將文本分段以便於 TTS 播放
+    function segmentTTS(text) {
+        console.log('分段 TTS 文本:', text);
+        const segments = [];
+        let currentSegment = '';
+        let softSegment = '';
+        
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            currentSegment += char;
+            softSegment += char;
+            
+            // 處理硬分段 (強制分段)
+            if (HARD_PUNCTUATION.includes(char)) {
+                segments.push(currentSegment);
+                currentSegment = '';
+                softSegment = '';
+            }
+            // 處理軟分段 (容納兩個段落)
+            else if (SOFT_PUNCTUATION.includes(char) && softSegment.length >= 2) {
+                // 如果累積了兩個軟分段，就進行分段
+                const matches = softSegment.match(new RegExp(`[${SOFT_PUNCTUATION}]`, 'g'));
+                if (matches && matches.length >= 2) {
+                    segments.push(currentSegment);
+                    currentSegment = '';
+                    softSegment = '';
+                }
+            }
+        }
+        
+        // 添加最後剩餘的文本 (如果有的話)
+        if (currentSegment) {
+            segments.push(currentSegment);
+        }
+        
+        console.log('TTS 分段結果:', segments);
+        return segments;
+    }
+    
+    // 處理音頻隊列
+    function processAudioQueue() {
+        if (isProcessingQueue || audioQueue.length === 0) return;
+        isProcessingQueue = true;
+        
+        const nextAudio = audioQueue.shift();
+        playAudio(nextAudio);
+        
+        // 音頻播放完成後會在 onended 事件中調用 processAudioQueue 繼續處理隊列
+        isProcessingQueue = false;
     }
     
     // 開始錄音
@@ -657,7 +726,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // 監聽 TTS 返回結果
     socket.on('tts', function(data) {
         if (data.audioUrl) {
-            playAudio(data.audioUrl);
+            // 添加到音頻隊列中
+            audioQueue.push(data.audioUrl);
+            // 如果沒有正在播放的音頻，則開始處理隊列
+            if (!isTTSPlaying) {
+                processAudioQueue();
+            }
         } else {
             console.error('TTS 返回中沒有音頻 URL');
         }

@@ -5,13 +5,60 @@ import express from 'express';
 
 const prisma = new PrismaClient();
 
+// 文本分段使用的標點符號定義
+const SOFT_PUNCTUATION = '、，：';  // 軟分段符號
+const HARD_PUNCTUATION = '！？。；';  // 硬分段符號
+
 class ConversationController {
     /**
-     * 初始化 Conversation 路由
+     * 初始化對話控制器
      * @param {Object} app Express 應用實例
      */
     initialize(app) {
         this.setupConversationRoutes(app);
+    }
+    
+    /**
+     * 將文本分段以便於 TTS 播放
+     * @param {string} text - 輸入文本
+     * @returns {Array<string>} - 分段後的文本數組
+     */
+    segmentText(text) {
+        console.log('分段 TTS 文本');
+        const segments = [];
+        let currentSegment = '';
+        let softSegment = '';
+        
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            currentSegment += char;
+            softSegment += char;
+            
+            // 處理硬分段 (強制分段)
+            if (HARD_PUNCTUATION.includes(char)) {
+                segments.push(currentSegment);
+                currentSegment = '';
+                softSegment = '';
+            }
+            // 處理軟分段 (容納兩個段落)
+            else if (SOFT_PUNCTUATION.includes(char) && softSegment.length >= 2) {
+                // 如果累積了兩個軟分段，就進行分段
+                const matches = softSegment.match(new RegExp(`[${SOFT_PUNCTUATION}]`, 'g'));
+                if (matches && matches.length >= 2) {
+                    segments.push(currentSegment);
+                    currentSegment = '';
+                    softSegment = '';
+                }
+            }
+        }
+        
+        // 添加最後剩餘的文本 (如果有的話)
+        if (currentSegment) {
+            segments.push(currentSegment);
+        }
+        
+        console.log(`TTS 分段結果: ${segments.length} 個段落`);
+        return segments;
     }
 
     /**
