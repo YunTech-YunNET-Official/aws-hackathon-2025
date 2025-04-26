@@ -1,0 +1,31 @@
+
+networks:
+  aws-hackathon:
+
+volumes:
+  mysql_data:
+
+services:
+  mysql:
+    image: mysql:8.2
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: aws-hackathon
+      MYSQL_USER: aws-user
+      MYSQL_PASSWORD: aws-password
+    ports:
+      - "127.0.0.1:3306:3306"
+    networks:
+      - aws-hackathon
+    volumes:
+      - mysql_data:/var/lib/mysql
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: root
+      PMA_PASSWORD: root
+    ports:
+      - "127.0.0.1:8080:80"
+    networks:
+      - aws-hackathon

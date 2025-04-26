@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Transcription</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+
+<body>
+    <div class="page-container">
+        <div class="container">
+            <h1>Real-time Audio Transcription</h1>
+            <div class="status">
+                Status: <span id="statusText">Not recording⚪</span>
+            </div>
+            <div class="button-container">
+                <button id="startButton">Start Transcription</button>
+                <button id="stopButton">Stop Transcription</button>
+                <button id="clearButton">Clear Transcript</button>
+            </div>
+            <div id="transcript"></div>
+            <div class="info-section">
+                <h2>How to use:</h2>
+                <ul>
+                    <li>Click "Start Transcription" to begin recording.</li>
+                    <li>Speak clearly into your microphone.</li>
+                    <li>Watch as your speech is transcribed in real-time.</li>
+                    <li>Click "Stop Transcription" when you're done.</li>
+                    <li>Use "Clear Transcript" to remove all transcribed text.</li>
+                </ul>
+            </div>
+            <div class="footer">
+                <p>© Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved. </p>
+            </div>
+        </div>
+    </div>
+    <script src="assets/js/index.js"></script>
+</body>
+
+</html>

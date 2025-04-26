@@ -1,0 +1,24 @@
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+
+// 導入配置和控制器
+import config from './config/index.js';
+import routeController from './controllers/routeController.js';
+import socketController from './controllers/socketController.js';
+
+// 初始化 Express 應用和 HTTP 服務器
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+// 初始化路由控制器
+routeController.initialize(app);
+
+// 初始化 Socket.IO 控制器
+socketController.initialize(io);
+
+// 啓動服務器
+server.listen(config.port, () =>
+    console.log(`Server running at http://localhost:${config.port}`),
+);
