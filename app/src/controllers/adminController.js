@@ -57,7 +57,7 @@ class AdminController {
             const rows = [];
             
             createReadStream(req.file.path)
-                .pipe(csv({ headers: true, skipLines: 0 }))
+                .pipe(csv())  // 移除選項，讓csv-parser自動處理header
                 .on('data', (data) => rows.push(data))
                 .on('end', async () => {
                     try {
@@ -68,13 +68,13 @@ class AdminController {
                                 data: {}
                             });
 
-                            // 將每個欄位當作屬性寫入 CustomerAttribute
+                            // 將每個欄位當作屬性寫入 CustomerAttribute，確保使用列標題作為屬性名稱
                             const attrs = Object.entries(row)
-                                .filter(([key, value]) => value !== '' && value != null)
-                                .map(([attribute, value]) => ({
+                                .filter(([header, value]) => value !== '' && value != null && header.trim() !== '')
+                                .map(([header, value]) => ({
                                     customerId: customer.id,
-                                    attribute,
-                                    value: value.toString(),
+                                    attribute: header.trim(),  // 使用CSV的標題作為屬性名稱
+                                    value: value.toString().trim(),
                                 }));
 
                             if (attrs.length) {
