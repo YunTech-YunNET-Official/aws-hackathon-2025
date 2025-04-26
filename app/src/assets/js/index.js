@@ -7,7 +7,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const openingInput = document.getElementById('opening-input');
     const conversationContainer = document.getElementById('conversation-container');
     const statusText = document.getElementById('statusText');
-    const statusIndicator = statusText.querySelector('.status-indicator');
     const startButton = document.getElementById('startButton');
     const stopButton = document.getElementById('stopButton');
     const clearButton = document.getElementById('clearButton');
@@ -23,6 +22,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentConversationId = null;
     let isRecording = false;
     let messageHistory = [];
+    let isFirstInteraction = true;
     
     // 載入客戶資料
     function loadCustomerData() {
@@ -268,7 +268,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        if (openingInput.value.trim()) {
+        if (openingInput.value.trim() && isFirstInteraction) {
             // 發送開場白
             const openingText = openingInput.value.trim();
             addMessage(openingText, 'user');
@@ -294,6 +294,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 顯示 AI 回覆並播放語音
                 addMessage(data.response, 'assistant');
                 playTTS(data.response);
+                isFirstInteraction = false;
                 
                 // 啟動語音辨識
                 startRecording();
@@ -317,6 +318,7 @@ document.addEventListener('DOMContentLoaded', function() {
     clearButton.addEventListener('click', function() {
         conversationContainer.innerHTML = '';
         messageHistory = [];
+        isFirstInteraction = true;
     });
     
     // 添加訊息到對話容器
@@ -387,39 +389,44 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('收到 TTS 回應');
             
             if (data.audioUrl) {
-                console.log('播放音頻 (data URL)');
-                
-                // 創建一個新的音頻元素
-                const audio = new Audio();
-                
-                // 設置音頻數據
-                audio.src = data.audioUrl;
-                
-                // 監聽錯誤
-                audio.onerror = (e) => {
-                    console.error('音頻播放失敗:', e);
-                };
-                
-                // 監聽播放開始
-                audio.onplay = () => {
-                    console.log('開始播放音頻');
-                };
-                
-                // 監聽播放結束
-                audio.onended = () => {
-                    console.log('音頻播放完成');
-                };
-                
-                // 播放音頻
-                audio.play().catch(error => {
-                    console.error('播放音頻時發生錯誤:', error);
-                });
+                playAudio(data.audioUrl);
             } else {
                 console.error('回應中沒有音頻 URL');
             }
         })
         .catch(error => {
             console.error('TTS 處理失敗:', error);
+        });
+    }
+    
+    // 播放音頻
+    function playAudio(audioUrl) {
+        console.log('播放音頻 (data URL)');
+        
+        // 創建一個新的音頻元素
+        const audio = new Audio();
+        
+        // 設置音頻數據
+        audio.src = audioUrl;
+        
+        // 監聽錯誤
+        audio.onerror = (e) => {
+            console.error('音頻播放失敗:', e);
+        };
+        
+        // 監聽播放開始
+        audio.onplay = () => {
+            console.log('開始播放音頻');
+        };
+        
+        // 監聽播放結束
+        audio.onended = () => {
+            console.log('音頻播放完成');
+        };
+        
+        // 播放音頻
+        audio.play().catch(error => {
+            console.error('播放音頻時發生錯誤:', error);
         });
     }
     
@@ -436,7 +443,10 @@ document.addEventListener('DOMContentLoaded', function() {
         navigator.mediaDevices.getUserMedia({ audio: true })
             .then(stream => {
                 // 通知服務器開始錄音
-                socket.emit('startGoogleCloudStream', { conversationId: currentConversationId });
+                socket.emit('startGoogleCloudStream', { 
+                    conversationId: currentConversationId,
+                    customerId: currentCustomerId
+                });
                 
                 // 配置音頻處理
                 window.localStream = stream;
@@ -445,15 +455,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 配置音頻處理器
                 const audioContext = new AudioContext();
                 const audioSource = audioContext.createMediaStreamSource(window.localAudioStream);
-                const processor = audioContext.createScriptProcessor(4096, 1, 1);
+                const processor = audioContext.createScriptProcessor(1024, 1, 1);
                 
                 // 將音頻數據發送到服務器
                 processor.onaudioprocess = function(e) {
                     if (!isRecording) return;
                     
-                    const left = e.inputBuffer.getChannelData(0);
-                    const leftInteger = convertFloat32ToInt16(left);
-                    socket.emit('binaryAudioData', leftInteger.buffer);
+                    const f32 = e.inputBuffer.getChannelData(0);
+                    const i16 = new Int16Array(f32.length);
+                    for (let i = 0; i < f32.length; ++i)
+                        i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768));
+                    socket.emit('binaryAudioData', i16.buffer);
                 };
                 
                 audioSource.connect(processor);
@@ -507,42 +519,55 @@ document.addEventListener('DOMContentLoaded', function() {
     // 監聽轉錄結果
     socket.on('transcription', function(data) {
         console.log('收到轉錄結果:', data);
-        if (data.isFinal) {
-            // 只處理最終結果
-            const transcribedText = data.results[0].alternatives[0].transcript;
-            if (transcribedText.trim()) {
-                // 添加用戶訊息
-                addMessage(transcribedText, 'user');
-                
-                // 保存訊息
-                saveMessage(transcribedText, 'user');
-                
-                // 發送到 LLM 並取得回覆
-                fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        conversationId: currentConversationId,
-                        text: transcribedText,
-                        customerId: currentCustomerId,
-                        history: messageHistory
-                    })
-                })
-                .then(response => {
-                    if (!response.ok) throw new Error('獲取 AI 回覆失敗');
-                    return response.json();
-                })
-                .then(data => {
-                    // 顯示 AI 回覆並播放語音
-                    addMessage(data.response, 'assistant');
-                    saveMessage(data.response, 'assistant');
-                    playTTS(data.response);
-                })
-                .catch(error => {
-                    console.error('對話處理失敗:', error);
-                });
-            }
+        
+        // 顯示即時轉錄結果
+        const transcriptDiv = document.createElement('div');
+        transcriptDiv.className = 'transcript-container';
+        transcriptDiv.innerHTML = `
+            <div class="transcript-text">
+                <span class="transcript-final">${data.global}</span>
+                <span class="transcript-partial">${data.partial}</span>
+            </div>
+        `;
+        
+        // 替換或添加到界面
+        const existingTranscript = document.querySelector('.transcript-container');
+        if (existingTranscript) {
+            existingTranscript.replaceWith(transcriptDiv);
+        } else {
+            conversationContainer.appendChild(transcriptDiv);
+            conversationContainer.scrollTop = conversationContainer.scrollHeight;
         }
+    });
+    
+    // 監聽最終轉錄結果
+    socket.on('transcriptionFinal', function(data) {
+        console.log('收到最終轉錄結果:', data);
+        
+        // 移除臨時的转錄容器
+        const existingTranscript = document.querySelector('.transcript-container');
+        if (existingTranscript) {
+            existingTranscript.remove();
+        }
+        
+        // 添加正式消息
+        addMessage(data.text, data.role);
+    });
+    
+    // 監聽 TTS 返回結果
+    socket.on('tts', function(data) {
+        if (data.audioUrl) {
+            playAudio(data.audioUrl);
+        } else {
+            console.error('TTS 返回中沒有音頻 URL');
+        }
+    });
+    
+    // 處理對話開始事件
+    socket.on('conversationStarted', function(data) {
+        console.log('對話已建立:', data);
+        currentConversationId = data.id;
+        loadConversationHistory();
     });
     
     // 處理錯誤事件

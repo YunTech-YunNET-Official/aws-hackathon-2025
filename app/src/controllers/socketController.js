@@ -1,8 +1,17 @@
 import { Server } from 'socket.io';
 import { PrismaClient } from '../generated/prisma/index.js';
 import { chat } from '../utils/llm.js';
+import { synthesize } from '../utils/tts.js';
+import config from '../config/index.js';
+import { 
+    TranscribeStreamingClient, 
+    StartStreamTranscriptionCommand 
+} from '@aws-sdk/client-transcribe-streaming';
 
 const prisma = new PrismaClient();
+
+// AWS Transcribe client
+const transcribeClient = new TranscribeStreamingClient({ region: config.aws.region });
 
 class SocketController {
     /**
@@ -23,117 +32,239 @@ class SocketController {
             
             // 存儲當前對話ID
             let currentConversationId = null;
+            let currentCustomerId = null;
+            let messageHistory = [];
             
-            // 存儲 Google Cloud 相關設定與資料
-            let recognizeStream = null;
-            let audioBuffer = [];
-            let isStreaming = false;
-            let transcription = '';
+            // AWS Transcribe 相關設定與資料
+            let isTranscribing = false;
+            let buffer = Buffer.alloc(0);
+            let globalTranscript = "";
+            let lastProcessedTranscript = "";
             
             // 開始語音辨識串流
             socket.on('startGoogleCloudStream', async (data) => {
-                if (isStreaming) return;
-                isStreaming = true;
+                if (isTranscribing) return;
                 
                 if (data && data.conversationId) {
                     currentConversationId = data.conversationId;
+                    if (data.customerId) {
+                        currentCustomerId = data.customerId;
+                    }
+                    
+                    // 載入對話歷史
+                    try {
+                        const messages = await prisma.message.findMany({
+                            where: { conversationId: parseInt(currentConversationId) },
+                            orderBy: { timestamp: 'asc' }
+                        });
+                        
+                        messageHistory = messages.map(msg => ({
+                            role: msg.role,
+                            content: msg.content
+                        }));
+                        
+                        console.log(`已載入對話 #${currentConversationId} 的歷史訊息，共 ${messageHistory.length} 條`);
+                    } catch (err) {
+                        console.error('載入對話歷史失敗:', err);
+                    }
                 }
                 
+                // 啟動語音辨識
+                isTranscribing = true;
+                buffer = Buffer.alloc(0);
+                globalTranscript = "";
+                lastProcessedTranscript = "";
+                
+                console.log('開始語音辨識串流', currentConversationId);
+                
+                /** 產生器：每隔一段時間把累積的 buffer 丟給 AWS */
+                const audioStream = (async function* () {
+                    while (isTranscribing) {
+                        await new Promise((r) => setTimeout(r, config.chunkIntervalMs));
+                        if (buffer.length) {
+                            yield { AudioEvent: { AudioChunk: buffer } };
+                            buffer = Buffer.alloc(0);
+                        }
+                    }
+                })();
+
+                const command = new StartStreamTranscriptionCommand({
+                    LanguageCode: config.aws.transcribe.defaultLanguage,
+                    MediaSampleRateHertz: config.aws.transcribe.sampleRate,
+                    MediaEncoding: config.aws.transcribe.encoding,
+                    AudioStream: audioStream,
+                });
+
                 try {
-                    // 使用 Google Cloud Speech-to-Text 或其他語音辨識服務
-                    // 這裡是示範用的簡化版本
-                    // 實際實作需引入適當的語音辨識服務 SDK
+                    const response = await transcribeClient.send(command);
                     
-                    // 模擬建立辨識串流
-                    console.log('開始語音辨識串流', currentConversationId);
-                    
-                    // 重置緩存
-                    audioBuffer = [];
-                    transcription = '';
-                } catch (error) {
-                    console.error('啟動語音辨識失敗:', error);
-                    socket.emit('error', '啟動語音辨識失敗');
-                    isStreaming = false;
+                    for await (const evt of response.TranscriptResultStream) {
+                        if (!evt.TranscriptEvent) continue;
+                        const results = evt.TranscriptEvent.Transcript.Results;
+                        if (!results.length) continue;
+
+                        const alt = results[0].Alternatives[0];
+                        if (!alt) continue;
+
+                        const txt = alt.Transcript ?? "";
+                        const isPartial = results[0].IsPartial;
+
+                        if (isPartial) {
+                            socket.emit("transcription", { global: globalTranscript, partial: txt });
+                        } else {
+                            // 最終結果：更新 global，檢查是否有 <SEP> 需要處理
+                            globalTranscript += txt + "<SEP>";
+                            socket.emit("transcription", { global: globalTranscript, partial: "" });
+                            
+                            // 處理完整語句，發送到前端進行顯示
+                            const currentText = globalTranscript.substring(lastProcessedTranscript.length);
+                            if (currentText.includes("<SEP>")) {
+                                const segments = currentText.split("<SEP>");
+                                for (let i = 0; i < segments.length - 1; i++) {
+                                    const segment = segments[i].trim();
+                                    if (segment) {
+                                        await processTranscription(segment);
+                                    }
+                                }
+                                lastProcessedTranscript = globalTranscript;
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error("Transcribe error:", err);
+                    socket.emit("error", "Transcribe error: " + err.message);
+                    isTranscribing = false;
                 }
             });
             
             // 接收語音資料
             socket.on('binaryAudioData', (data) => {
-                if (!isStreaming) return;
+                if (!isTranscribing) return;
+                buffer = Buffer.concat([buffer, Buffer.from(data)]);
+            });
+            
+            // 處理轉錄結果的函數
+            async function processTranscription(transcribedText) {
+                if (!transcribedText || !currentConversationId) return;
                 
                 try {
-                    // 將語音資料加入緩存
-                    audioBuffer.push(data);
+                    console.log('處理轉錄結果:', transcribedText);
                     
-                    // 這裡應該將資料傳送到實際的語音識別服務
-                    // 以下為模擬處理
+                    // 發送到前端顯示對話內容
+                    socket.emit('transcriptionFinal', {
+                        text: transcribedText,
+                        role: 'user'
+                    });
                     
-                    // 每累積一定量的資料就模擬一次中間結果
-                    if (audioBuffer.length % 5 === 0) {
-                        // 模擬中間結果
-                        socket.emit('transcription', {
-                            results: [{
-                                alternatives: [{
-                                    transcript: '正在處理...'
-                                }]
-                            }],
-                            isFinal: false
-                        });
+                    // 保存用戶訊息
+                    const userMessage = await prisma.message.create({
+                        data: {
+                            conversationId: parseInt(currentConversationId),
+                            content: transcribedText,
+                            role: 'user'
+                        }
+                    });
+                    
+                    // 更新歷史
+                    messageHistory.push({
+                        role: 'user',
+                        content: transcribedText
+                    });
+                    
+                    // 從資料庫取得對話
+                    const conversation = await prisma.conversation.findUnique({
+                        where: { id: parseInt(currentConversationId) }
+                    });
+                    
+                    if (!conversation) {
+                        throw new Error('找不到對話記錄');
                     }
                     
+                    // 處理 LLM 請求
+                    const [response, newHistory] = await chat(transcribedText, {
+                        model: 'nova-pro',
+                        system: conversation.prompt,
+                        history: messageHistory
+                    });
+                    
+                    // 保存 AI 回應
+                    const assistantMessage = await prisma.message.create({
+                        data: {
+                            conversationId: parseInt(currentConversationId),
+                            content: response,
+                            role: 'assistant'
+                        }
+                    });
+                    
+                    // 更新歷史
+                    messageHistory.push({
+                        role: 'assistant',
+                        content: response
+                    });
+                    
+                    // 發送到前端顯示對話內容
+                    socket.emit('transcriptionFinal', {
+                        text: response,
+                        role: 'assistant'
+                    });
+                    
+                    // 合成語音
+                    const audioBuffer = await synthesize(response);
+                    
+                    // 將音頻緩衝區轉換為 base64 數據 URL
+                    const base64Audio = audioBuffer.toString('base64');
+                    const audioDataUrl = `data:audio/wav;base64,${base64Audio}`;
+                    
+                    // 發送語音到前端播放
+                    socket.emit('tts', { audioUrl: audioDataUrl });
+                    
                 } catch (error) {
-                    console.error('處理語音資料失敗:', error);
+                    console.error('處理轉錄結果失敗:', error);
+                    socket.emit('error', '處理轉錄結果失敗: ' + error.message);
                 }
-            });
+            }
             
             // 停止語音辨識串流
             socket.on('stopGoogleCloudStream', () => {
-                if (!isStreaming) return;
-                
+                isTranscribing = false;
+                console.log('語音辨識串流結束');
+            });
+            
+            // 開始新對話
+            socket.on('startNewConversation', async (data) => {
                 try {
-                    // 清理資源
-                    if (recognizeStream) {
-                        recognizeStream.end();
-                        recognizeStream = null;
+                    if (!data || !data.customerId) {
+                        throw new Error('缺少客戶ID');
                     }
                     
-                    // 模擬辨識完成結果
-                    if (audioBuffer.length > 0) {
-                        // 實際系統會從語音辨識服務獲得真實結果
-                        // 這裡僅是模擬
-                        socket.emit('transcription', {
-                            results: [{
-                                alternatives: [{
-                                    transcript: '這是一個模擬的語音辨識結果。'
-                                }]
-                            }],
-                            isFinal: true
-                        });
-                    }
+                    // 建立新對話
+                    const conversation = await prisma.conversation.create({
+                        data: {
+                            customerId: parseInt(data.customerId),
+                            prompt: data.prompt || '',
+                        }
+                    });
                     
-                    // 重置狀態
-                    isStreaming = false;
-                    audioBuffer = [];
-                    console.log('語音辨識串流結束');
+                    currentConversationId = conversation.id;
+                    currentCustomerId = data.customerId;
+                    messageHistory = [];
+                    
+                    socket.emit('conversationStarted', {
+                        id: conversation.id,
+                        message: '對話建立成功'
+                    });
+                    
                 } catch (error) {
-                    console.error('停止語音辨識失敗:', error);
-                    isStreaming = false;
-                    audioBuffer = [];
+                    console.error('建立對話失敗:', error);
+                    socket.emit('error', '建立對話失敗: ' + error.message);
                 }
             });
             
             // 斷開連接
             socket.on('disconnect', () => {
                 console.log('連線關閉: ' + socket.id);
-                
-                // 清理資源
-                if (recognizeStream) {
-                    recognizeStream.end();
-                    recognizeStream = null;
-                }
-                
-                isStreaming = false;
-                audioBuffer = [];
+                isTranscribing = false;
+                buffer = Buffer.alloc(0);
             });
         });
     }
