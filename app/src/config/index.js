@@ -22,6 +22,7 @@ const config = {
         }
     },
     paths: {
+        root: rootDir,
         static: path.join(rootDir, 'src'),
         templates: path.join(rootDir, 'src/templates')
     },

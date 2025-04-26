@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>客戶資料管理後台</title>
+    <style>
+        body {
+            font-family: 'Microsoft JhengHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .upload-section {
+            background-color: #eee;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        .upload-form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        .btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        .customer-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            overflow-x: auto;
+        }
+        .customer-table th, .customer-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        .customer-table th {
+            background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
+        }
+        .customer-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .customer-table tr:hover {
+            background-color: #f1f1f1;
+        }
+        .message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            text-align: center;
+            font-style: italic;
+            color: #666;
+            margin: 20px 0;
+        }
+        .attribute-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 8px;
+            background-color: #f9f9f9;
+        }
+        .attribute-item {
+            margin-bottom: 5px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        .attribute-name {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>客戶資料管理後台</h1>
+        
+        <div class="upload-section">
+            <h2>上傳 CSV 檔案</h2>
+            <div id="message-container"></div>
+            <form id="upload-form" class="upload-form">
+                <div class="form-group">
+                    <label for="file-input">選擇 CSV 檔案：</label>
+                    <input type="file" id="file-input" accept=".csv" required>
+                </div>
+                <div>
+                    <button type="submit" class="btn">上傳並處理</button>
+                </div>
+            </form>
+        </div>
+        
+        <div class="data-section">
+            <h2>客戶資料</h2>
+            <button id="refresh-btn" class="btn">重新載入資料</button>
+            <div id="customer-data-container">
+                <p class="loading">正在載入資料...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadForm = document.getElementById('upload-form');
+            const messageContainer = document.getElementById('message-container');
+            const refreshBtn = document.getElementById('refresh-btn');
+            const customerDataContainer = document.getElementById('customer-data-container');
+            
+            // 顯示訊息函數
+            function showMessage(message, type) {
+                const div = document.createElement('div');
+                div.className = `message ${type}`;
+                div.textContent = message;
+                messageContainer.innerHTML = '';
+                messageContainer.appendChild(div);
+                setTimeout(() => {
+                    div.style.opacity = '0';
+                    setTimeout(() => {
+                        if (div.parentNode === messageContainer) {
+                            messageContainer.removeChild(div);
+                        }
+                    }, 500);
+                }, 5000);
+            }
+            
+            // 載入客戶資料
+            function loadCustomerData() {
+                customerDataContainer.innerHTML = '<p class="loading">正在載入資料...</p>';
+                
+                fetch('/admin/api/customers')
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('獲取資料失敗');
+                        }
+                        return response.json();
+                    })
+                    .then(customers => {
+                        if (customers.length === 0) {
+                            customerDataContainer.innerHTML = '<p>暫無客戶資料</p>';
+                            return;
+                        }
+                        
+                        // 創建表格
+                        const table = document.createElement('table');
+                        table.className = 'customer-table';
+                        
+                        // 表頭
+                        const thead = document.createElement('thead');
+                        const headerRow = document.createElement('tr');
+                        headerRow.innerHTML = `
+                            <th>客代</th>
+                            <th>屬性</th>
+                        `;
+                        thead.appendChild(headerRow);
+                        table.appendChild(thead);
+                        
+                        // 表格內容
+                        const tbody = document.createElement('tbody');
+                        customers.forEach(customer => {
+                            const row = document.createElement('tr');
+                            
+                            // 客代欄位
+                            const idCell = document.createElement('td');
+                            idCell.textContent = customer.id;
+                            row.appendChild(idCell);
+                            
+                            // 屬性欄位
+                            const attributesCell = document.createElement('td');
+                            const attributesList = document.createElement('div');
+                            attributesList.className = 'attribute-list';
+                            
+                            if (customer.attributes && customer.attributes.length > 0) {
+                                customer.attributes.forEach(attr => {
+                                    const attrItem = document.createElement('div');
+                                    attrItem.className = 'attribute-item';
+                                    attrItem.innerHTML = `
+                                        <span class="attribute-name">${attr.attribute}:</span> 
+                                        <span class="attribute-value">${attr.value}</span>
+                                    `;
+                                    attributesList.appendChild(attrItem);
+                                });
+                            } else {
+                                attributesList.textContent = '無屬性資料';
+                            }
+                            
+                            attributesCell.appendChild(attributesList);
+                            row.appendChild(attributesCell);
+                            
+                            tbody.appendChild(row);
+                        });
+                        
+                        table.appendChild(tbody);
+                        customerDataContainer.innerHTML = '';
+                        customerDataContainer.appendChild(table);
+                    })
+                    .catch(error => {
+                        console.error('獲取客戶資料失敗:', error);
+                        customerDataContainer.innerHTML = `<p class="error">無法載入資料: ${error.message}</p>`;
+                    });
+            }
+            
+            // 上傳檔案
+            uploadForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const fileInput = document.getElementById('file-input');
+                if (!fileInput.files[0]) {
+                    showMessage('請選擇要上傳的檔案', 'error');
+                    return;
+                }
+                
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                
+                const submitButton = uploadForm.querySelector('button[type="submit"]');
+                submitButton.disabled = true;
+                submitButton.textContent = '上傳中...';
+                
+                fetch('/admin/api/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                        fileInput.value = '';
+                        loadCustomerData(); // 重新載入資料
+                    } else {
+                        showMessage(data.error || '上傳失敗', 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('上傳檔案失敗:', error);
+                    showMessage('上傳檔案失敗: ' + error.message, 'error');
+                })
+                .finally(() => {
+                    submitButton.disabled = false;
+                    submitButton.textContent = '上傳並處理';
+                });
+            });
+            
+            // 重新載入資料按鈕
+            refreshBtn.addEventListener('click', loadCustomerData);
+            
+            // 初始載入資料
+            loadCustomerData();
+        });
+    </script>
+</body>
+</html>

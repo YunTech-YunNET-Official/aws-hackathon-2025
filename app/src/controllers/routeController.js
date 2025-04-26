@@ -1,6 +1,7 @@
 import path from 'path';
 import express from 'express';
 import config from '../config/index.js';
+import adminController from './adminController.js';
 
 class RouteController {
     /**
@@ -10,6 +11,9 @@ class RouteController {
     initialize(app) {
         this.setupStaticFiles(app);
         this.setupRoutes(app);
+        
+        // 初始化 Admin 控制器
+        adminController.initialize(app);
     }
 
     /**

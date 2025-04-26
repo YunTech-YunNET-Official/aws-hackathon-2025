@@ -1,0 +1,44 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+/// 客戶主表：每一位客戶為一筆資料
+model Customer {
+  /// 客代（主鍵，對應原表「客代」欄位）
+  id              Int                    @id @default(autoincrement()) @map("客代")
+
+  /// EAV 屬性關聯清單
+  attributes      CustomerAttribute[]    
+
+  @@map("processed_data")
+}
+
+/// EAV 屬性表：以鍵值對形式儲存各種屬性
+model CustomerAttribute {
+  /// 自動遞增主鍵
+  id              Int         @id @default(autoincrement())
+
+  /// 外鍵關聯至 Customer
+  customer        Customer    @relation(fields: [customerId], references: [id])
+  customerId      Int         @map("客代")
+
+  /// 屬性名稱
+  attribute       String      @map("屬性名稱")
+
+  /// 屬性對應值
+  value           String      @map("值")
+
+  @@map("customer_attributes")
+}

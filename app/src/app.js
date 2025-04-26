@@ -12,6 +12,10 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+// 添加中間件解析 JSON 和 URL-encoded 數據
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // 初始化路由控制器
 routeController.initialize(app);
 
