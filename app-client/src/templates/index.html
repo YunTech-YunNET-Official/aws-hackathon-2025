@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Transcription</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+
+<body>
+    <div class="page-container">
+        <div class="container">
+            <h1>Real-time Audio Transcription</h1>
+            <div class="status">
+                Status: <span id="statusText">Not recording⚪</span>
+            </div>
+            <div class="button-container">
+                <button id="startButton">Start Transcription</button>
+                <button id="stopButton">Stop Transcription</button>
+                <button id="clearButton">Clear Transcript</button>
+            </div>
+            <div id="transcript"></div>
+            <div class="info-section">
+                <h2>How to use:</h2>
+                <ul>
+                    <li>Click "Start Transcription" to begin recording.</li>
+                    <li>Speak clearly into your microphone.</li>
+                    <li>Watch as your speech is transcribed in real-time.</li>
+                    <li>Click "Stop Transcription" when you're done.</li>
+                    <li>Use "Clear Transcript" to remove all transcribed text.</li>
+                </ul>
+            </div>
+            <div class="footer">
+                <p>© Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved. </p>
+            </div>
+        </div>
+    </div>
+    <script>
+        const socket = io();
+        let audioCtx, source, proc;
+        const statusEl = document.getElementById("statusText");
+        const transcriptEl = document.getElementById("transcript");
+
+        document.getElementById("startButton").onclick = start;
+        document.getElementById("stopButton").onclick = stop;
+        document.getElementById("clearButton").onclick = () => (transcriptEl.textContent = "");
+
+        async function start() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioCtx = new AudioContext();
+            source = audioCtx.createMediaStreamSource(stream);
+            proc = audioCtx.createScriptProcessor(1024, 1, 1);
+            source.connect(proc);
+            proc.connect(audioCtx.destination);
+
+            proc.onaudioprocess = (e) => {
+                const f32 = e.inputBuffer.getChannelData(0);
+                const i16 = new Int16Array(f32.length);
+                for (let i = 0; i < f32.length; ++i)
+                    i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768));
+                socket.emit("audioData", i16.buffer);
+            };
+
+            socket.emit("startTranscription");
+            statusEl.textContent = "Recording🔴";
+        }
+
+        function stop() {
+            if (!audioCtx) return;
+            source.disconnect(); proc.disconnect(); audioCtx.close();
+            socket.emit("stopTranscription");
+            statusEl.textContent = "Not recording⚪";
+        }
+        /* ===== 實時顯示 ===== */
+        socket.on("transcription", ({ global, partial }) => {
+            transcriptEl.textContent = global + partial;
+        });
+        socket.on("error", (msg) => console.error(msg));
+    </script>
+
+</body>
+
+</html>
