@@ -1,0 +1,98 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+/// Customer table: One record per customer
+model Customer {
+  /// Customer ID (primary key)
+  id Int @id @default(autoincrement()) @map("customer_id")
+
+  /// EAV attributes relationship list
+  attributes CustomerAttribute[]
+  
+  /// Customer related conversations
+  conversations Conversation[]
+
+  @@map("customers")
+}
+
+/// Customer attribute table: Store customer attributes using EAV model
+model CustomerAttribute {
+  /// Attribute ID
+  id Int @id @default(autoincrement())
+
+  /// Related customer ID
+  customerId Int @map("customer_id")
+  
+  /// Attribute name
+  attribute String
+  
+  /// Attribute value
+  value String @db.Text
+
+  /// Customer relationship
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("customer_attributes")
+}
+
+/// Conversation record table: Store conversations with customers
+model Conversation {
+  /// Conversation ID
+  id Int @id @default(autoincrement())
+
+  /// Related customer ID
+  customerId Int @map("customer_id")
+
+  /// Conversation system prompt
+  prompt String? @db.Text
+  
+  /// Creation time
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// Update time
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  /// Customer relationship
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  /// Conversation messages
+  messages Message[]
+
+  @@map("conversations")
+}
+
+/// Message table: Store individual messages in conversations
+model Message {
+  /// Message ID
+  id Int @id @default(autoincrement())
+  
+  /// Related conversation ID
+  conversationId Int @map("conversation_id")
+  
+  /// Message role (user/assistant)
+  role String
+  
+  /// Message content
+  content String @db.Text
+  
+  /// Message timestamp
+  timestamp DateTime @default(now())
+  
+  /// Conversation relationship
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
