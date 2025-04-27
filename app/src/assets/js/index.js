@@ -167,7 +167,7 @@ document.addEventListener('DOMContentLoaded', function() {
             attrText += `${attr.attribute}: ${attr.value}\n`;
         });
         
-        promptInput.value = getPrompt(attrText);
+        promptInput.value = getConvPrompt(attrText);
     }
     
     // 建立新對話
@@ -278,7 +278,7 @@ document.addEventListener('DOMContentLoaded', function() {
             conversationContainer.appendChild(planningMessage);
             conversationContainer.scrollTop = conversationContainer.scrollHeight;
             
-            const openingText = openingInput.value.trim() || '開始對話';
+            const openingText = openingInput.value.trim() || '你好';
             
             // 發送到 LLM 以獲取開場白
             fetch('/api/chat', {
