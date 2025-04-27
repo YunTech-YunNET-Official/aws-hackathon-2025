@@ -2,8 +2,10 @@ import { PrismaClient } from '../generated/prisma/index.js';
 import { chat } from '../utils/llm.js';
 import { synthesize } from '../utils/tts.js';
 import express from 'express';
+import openCCConverter from '../utils/tw.js';
 
 const prisma = new PrismaClient();
+const s2tConverter = openCCConverter('cn', 'tw');
 
 // 文本分段使用的標點符號定義
 const SOFT_PUNCTUATION = '、，：';  // 軟分段符號
@@ -113,6 +115,14 @@ class ConversationController {
                 
                 if (!conversation) {
                     return res.status(404).json({ error: '找不到對話記錄' });
+                }
+                
+                // 將訊息內容從簡體轉換為繁體中文
+                if (conversation.messages && conversation.messages.length > 0) {
+                    conversation.messages = conversation.messages.map(message => ({
+                        ...message,
+                        content: s2tConverter(message.content)
+                    }));
                 }
                 
                 res.json(conversation);
@@ -232,6 +242,9 @@ class ConversationController {
                     }
                 });
                 
+                // 轉換回應為繁體中文
+                const traditionalResponse = s2tConverter(response);
+                
                 // 合成語音
                 const audioBuffer = await synthesize(response);
                 
@@ -240,7 +253,7 @@ class ConversationController {
                 const audioDataUrl = `data:audio/wav;base64,${base64Audio}`;
                 
                 res.json({
-                    response,
+                    response: traditionalResponse,
                     audioUrl: audioDataUrl
                 });
             } catch (error) {

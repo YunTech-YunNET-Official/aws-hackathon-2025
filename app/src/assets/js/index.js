@@ -417,7 +417,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // 滾動到底部
         conversationContainer.scrollTop = conversationContainer.scrollHeight;
         
-        // 保存到歷史記錄
+        // 保存到歷史記錄 
         messageHistory.push({ role, content: text });
     }
     
@@ -503,7 +503,7 @@ document.addEventListener('DOMContentLoaded', function() {
             isTTSPlaying = false;
             currentAudio = null;
             // 處理下一個音頻段落
-            setTimeout(processAudioQueue, 1000);
+            setTimeout(processAudioQueue, 50);
         };
         
         // 監聽播放開始
@@ -517,8 +517,8 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('音頻播放完成');
             isTTSPlaying = false;
             currentAudio = null;
-            // 處理音頻隊列中的下一個音頻，添加1秒延遲
-            setTimeout(processAudioQueue, 1000);
+            // 處理音頻隊列中的下一個音頻，添加0.1秒延遲
+            setTimeout(processAudioQueue, 50);
         };
         
         // 播放音頻
@@ -527,7 +527,7 @@ document.addEventListener('DOMContentLoaded', function() {
             isTTSPlaying = false;
             currentAudio = null;
             // 發生錯誤時也嘗試播放下一段
-            setTimeout(processAudioQueue, 1000);
+            setTimeout(processAudioQueue, 50);
         });
     }
     
@@ -571,15 +571,21 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 處理音頻隊列
-    function processAudioQueue() {
+    async function processAudioQueue() {
         if (isProcessingQueue || audioQueue.length === 0) return;
         isProcessingQueue = true;
         
+        // 從隊列中取出下一個音頻
         const nextAudio = audioQueue.shift();
         playAudio(nextAudio);
         
-        // 音頻播放完成後會在 onended 事件中調用 processAudioQueue 繼續處理隊列
-        isProcessingQueue = false;
+        // 每50ms檢查一次隊列，允許並行處理
+        setTimeout(() => {
+            isProcessingQueue = false;
+            if (audioQueue.length > 0) {
+                processAudioQueue();
+            }
+        }, 50);
     }
     
     // 開始錄音
@@ -595,7 +601,7 @@ document.addEventListener('DOMContentLoaded', function() {
         navigator.mediaDevices.getUserMedia({ audio: true })
             .then(stream => {
                 // 通知服務器開始錄音
-                socket.emit('startGoogleCloudStream', { 
+                socket.emit('startAWSStream', { 
                     conversationId: currentConversationId,
                     customerId: currentCustomerId
                 });
@@ -643,7 +649,7 @@ document.addEventListener('DOMContentLoaded', function() {
         statusText.innerHTML = '未錄音 <span class="status-indicator inactive"></span>';
         
         // 通知服務器停止錄音
-        socket.emit('stopGoogleCloudStream');
+        socket.emit('stopAWSStream');
         
         // 停止本地錄音
         if (window.localStream) {
@@ -691,7 +697,6 @@ document.addEventListener('DOMContentLoaded', function() {
         transcriptDiv.className = 'transcript-container';
         transcriptDiv.innerHTML = `
             <div class="transcript-text">
-                <span class="transcript-final">${data.global}</span>
                 <span class="transcript-partial">${data.partial}</span>
             </div>
         `;
@@ -723,6 +728,17 @@ document.addEventListener('DOMContentLoaded', function() {
     // 監聽 TTS 返回結果
     socket.on('tts', function(data) {
         if (data.audioUrl) {
+            // 如果標記為新回應，清空現有隊列並停止當前播放
+            if (data.isNewResponse) {
+                console.log('收到新的回應音頻，清空現有隊列');
+                audioQueue = [];
+                if (currentAudio) {
+                    currentAudio.pause();
+                    currentAudio = null;
+                    isTTSPlaying = false;
+                }
+            }
+            
             // 添加到音頻隊列中
             audioQueue.push(data.audioUrl);
             // 如果沒有正在播放的音頻，則開始處理隊列
@@ -746,6 +762,54 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('Socket 錯誤:', error);
         alert('Socket 錯誤: ' + error);
         stopRecording();
+    });
+    
+    // 監聽訊息更新事件 (用於合併連續用戶訊息)
+    socket.on('messageUpdate', function(data) {
+        console.log('收到訊息更新事件:', data);
+        
+        // 如果這是一個用戶訊息更新
+        if (data.role === 'user') {
+            // 找到所有用戶訊息元素
+            const userMessages = document.querySelectorAll('.user-message');
+            if (userMessages.length > 0) {
+                // 更新最後一個用戶訊息
+                const lastUserMessage = userMessages[userMessages.length - 1];
+                const contentP = lastUserMessage.querySelector('p:first-child');
+                if (contentP) {
+                    contentP.textContent = data.text;
+                }
+            }
+        } 
+        // 如果是助手訊息更新 (替換先前的回應)
+        else if (data.role === 'assistant' && data.isReplace) {
+            // 找到所有助手訊息元素
+            const assistantMessages = document.querySelectorAll('.assistant-message');
+            if (assistantMessages.length > 0) {
+                // 更新最後一個助手訊息
+                const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+                const contentP = lastAssistantMessage.querySelector('p:first-child');
+                if (contentP) {
+                    contentP.textContent = data.text;
+                }
+            }
+        }
+    });
+    
+    // 監聽清除音頻隊列事件
+    socket.on('clearAudioQueue', function() {
+        console.log('收到清除音頻隊列事件');
+        
+        // 清空音頻隊列
+        audioQueue = [];
+        isProcessingQueue = false;
+        
+        // 如果有正在播放的音頻，停止它
+        if (currentAudio) {
+            currentAudio.pause();
+            currentAudio = null;
+            isTTSPlaying = false;
+        }
     });
     
     // 初始載入

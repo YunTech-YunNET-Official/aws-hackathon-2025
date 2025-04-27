@@ -7,8 +7,10 @@ import {
     TranscribeStreamingClient, 
     StartStreamTranscriptionCommand 
 } from '@aws-sdk/client-transcribe-streaming';
+import openCCConverter from '../utils/tw.js';
 
 const prisma = new PrismaClient();
+const s2tConverter = openCCConverter('cn', 'tw');
 
 // AWS Transcribe client
 const transcribeClient = new TranscribeStreamingClient({ region: config.aws.region });
@@ -46,8 +48,15 @@ class SocketController {
             let globalTranscript = "";
             let lastProcessedTranscript = "";
             
+            // 追蹤最近的用戶訊息和處理狀態
+            let lastUserMessageId = null;          // 最後一則用戶訊息ID
+            let lastUserMessageTimestamp = null;   // 最後一則用戶訊息時間戳
+            let activeRequestController = null;    // 活動中的請求控制器，用於取消請求
+            let isProcessingResponse = false;      // 是否正在處理回應
+            const MESSAGE_COMBINE_THRESHOLD = 2000; // 合併訊息的時間閾值（毫秒）
+
             // 開始語音辨識串流
-            socket.on('startGoogleCloudStream', async (data) => {
+            socket.on('startAWSStream', async (data) => {
                 if (isTranscribing) return;
                 
                 if (data && data.conversationId) {
@@ -131,22 +140,11 @@ class SocketController {
                         if (isPartial) {
                             socket.emit("transcription", { global: globalTranscript, partial: txt });
                         } else {
-                            // 最終結果：更新 global，檢查是否有 <SEP> 需要處理
-                            globalTranscript += txt + "<SEP>";
+                            // 最終結果：更新 global transcript
+                            globalTranscript += txt;
                             socket.emit("transcription", { global: globalTranscript, partial: "" });
-                            
-                            // 處理完整語句，發送到前端進行顯示
-                            const currentText = globalTranscript.substring(lastProcessedTranscript.length);
-                            if (currentText.includes("<SEP>")) {
-                                const segments = currentText.split("<SEP>");
-                                for (let i = 0; i < segments.length - 1; i++) {
-                                    const segment = segments[i].trim();
-                                    if (segment) {
-                                        await processTranscription(segment);
-                                    }
-                                }
-                                lastProcessedTranscript = globalTranscript;
-                            }
+                            processTranscription(txt.trim());
+                            lastProcessedTranscript = globalTranscript;
                         }
                     }
                 } catch (err) {
@@ -166,30 +164,121 @@ class SocketController {
             async function processTranscription(transcribedText) {
                 if (!transcribedText || !currentConversationId) return;
                 
-                try {
-                    console.log('處理轉錄結果:', transcribedText);
+                console.log('處理轉錄結果:', transcribedText);
+                
+                const now = new Date();
+                let isContinuedMessage = false;
+                
+                // 檢查是否為連續訊息（短時間內連續發送）
+                if (lastUserMessageId && lastUserMessageTimestamp && 
+                    (now.getTime() - lastUserMessageTimestamp.getTime() < MESSAGE_COMBINE_THRESHOLD)) {
+                    isContinuedMessage = true;
+                    console.log('連續訊息檢測：合併訊息');
                     
-                    // 發送到前端顯示對話內容
+                    // 如果有活動中的請求，嘗試取消它
+                    if (activeRequestController) {
+                        console.log('取消現有的 LLM 請求');
+                        activeRequestController.abort();
+                        activeRequestController = null;
+                    }
+                    
+                    // 清空音頻隊列並停止所有播放中的 TTS
+                    if (socket.audioQueue) {
+                        console.log('清空音頻隊列');
+                        socket.audioQueue = [];
+                    }
+                    
+                    try {
+                        // 從資料庫中獲取先前的訊息
+                        const previousMessage = await prisma.message.findUnique({
+                            where: { id: lastUserMessageId }
+                        });
+                        
+                        if (previousMessage) {
+                            // 合併文本
+                            const combinedText = previousMessage.content + " " + transcribedText;
+                            
+                            // 更新資料庫中的訊息
+                            await prisma.message.update({
+                                where: { id: lastUserMessageId },
+                                data: { content: combinedText }
+                            });
+                            
+                            // 更新本地歷史
+                            // 找到並更新最後一條用戶訊息
+                            const userMsgIndex = messageHistory.findIndex(msg => 
+                                msg.role === 'user' && 
+                                msg.content === previousMessage.content);
+                            
+                            if (userMsgIndex !== -1) {
+                                messageHistory[userMsgIndex].content = combinedText;
+                            }
+                            
+                            // 更新前端顯示
+                            socket.emit('messageUpdate', {
+                                id: lastUserMessageId,
+                                text: combinedText,
+                                role: 'user'
+                            });
+                            
+                            // 使用合併後的訊息進行處理
+                            transcribedText = combinedText;
+                        }
+                    } catch (error) {
+                        console.error('合併訊息失敗:', error);
+                        // 失敗時，繼續處理當前訊息作為新訊息
+                        isContinuedMessage = false;
+                    }
+                }
+
+                // 非合併訊息時，發送到前端顯示並保存新訊息
+                if (!isContinuedMessage) {
+                    // 立即發送到前端顯示對話內容
                     socket.emit('transcriptionFinal', {
-                        text: transcribedText,
+                        text: s2tConverter(transcribedText),
                         role: 'user'
                     });
                     
-                    // 保存用戶訊息
-                    const userMessage = await prisma.message.create({
-                        data: {
-                            conversationId: parseInt(currentConversationId),
-                            content: transcribedText,
-                            role: 'user'
-                        }
-                    });
-                    
-                    // 更新歷史
-                    messageHistory.push({
-                        role: 'user',
-                        content: transcribedText
-                    });
-                    
+                    // 保存用戶訊息到資料庫
+                    try {
+                        const userMessage = await prisma.message.create({
+                            data: {
+                                conversationId: parseInt(currentConversationId),
+                                content: transcribedText,
+                                role: 'user'
+                            }
+                        });
+                        
+                        console.log('用戶訊息已保存，ID:', userMessage.id);
+                        
+                        // 更新追蹤變数
+                        lastUserMessageId = userMessage.id;
+                        lastUserMessageTimestamp = new Date();
+                        
+                        // 更新歷史
+                        messageHistory.push({
+                            role: 'user',
+                            content: transcribedText
+                        });
+                    } catch (err) {
+                        console.error('保存用戶訊息失敗:', err);
+                    }
+                } else {
+                    // 更新時間戳以便於追蹤連續訊息
+                    lastUserMessageTimestamp = new Date();
+                }
+                
+                // 標記為正在處理中
+                isProcessingResponse = true;
+                
+                // 創建可取消的請求控制器
+                activeRequestController = new AbortController();
+                
+                // 準備處理 LLM 請求
+                let systemPromptLocal = systemPrompt;
+                let llmResponse = null;
+                
+                try {
                     // 從資料庫取得對話
                     const conversation = await prisma.conversation.findUnique({
                         where: { id: parseInt(currentConversationId) }
@@ -199,68 +288,175 @@ class SocketController {
                         throw new Error('找不到對話記錄');
                     }
                     
-                    systemPrompt = conversation.prompt || '';
+                    systemPromptLocal = conversation.prompt || '';
                     
-                    // 處理 LLM 請求
+                    // 處理 LLM 請求，使用 AbortController 信號
+                    const signal = activeRequestController.signal;
+                    
                     const [response, newHistory] = await chat(transcribedText, {
                         model: 'nova-pro',
-                        system: systemPrompt,
-                        history: messageHistory
+                        system: systemPromptLocal,
+                        history: messageHistory,
+                        signal: signal // 傳遞取消信號（注意：需要在 llm.js 中支援這個參數）
                     });
                     
-                    // 保存 AI 回應
-                    const assistantMessage = await prisma.message.create({
-                        data: {
-                            conversationId: parseInt(currentConversationId),
-                            content: response,
-                            role: 'assistant'
+                    llmResponse = response;
+                    
+                    // 如果處理過程被取消，結束此次處理
+                    if (signal.aborted) {
+                        console.log('LLM 請求已被取消');
+                        activeRequestController = null;
+                        isProcessingResponse = false;
+                        return;
+                    }
+                    
+                    // 檢查是否為合併訊息對應的舊回應，需要更新
+                    if (isContinuedMessage) {
+                        // 找到最後一條助理訊息
+                        const lastAssistantMsg = await prisma.message.findFirst({
+                            where: { 
+                                conversationId: parseInt(currentConversationId),
+                                role: 'assistant'
+                            },
+                            orderBy: {
+                                timestamp: 'desc'
+                            }
+                        });
+                        
+                        // 如果存在，則更新它
+                        if (lastAssistantMsg) {
+                            await prisma.message.update({
+                                where: { id: lastAssistantMsg.id },
+                                data: { content: response }
+                            });
+                            
+                            // 更新本地歷史
+                            const assistantMsgIndex = messageHistory.findLastIndex(msg => 
+                                msg.role === 'assistant');
+                            
+                            if (assistantMsgIndex !== -1) {
+                                messageHistory[assistantMsgIndex].content = response;
+                            } else {
+                                // 如果沒找到，就添加新的
+                                messageHistory.push({
+                                    role: 'assistant',
+                                    content: response
+                                });
+                            }
+                        } else {
+                            // 如果沒有前一條助理訊息，創建一個新的
+                            await prisma.message.create({
+                                data: {
+                                    conversationId: parseInt(currentConversationId),
+                                    content: response,
+                                    role: 'assistant'
+                                }
+                            });
+                            
+                            // 更新本地歷史
+                            messageHistory.push({
+                                role: 'assistant',
+                                content: response
+                            });
                         }
-                    });
+                        
+                        // 通知前端更新助理訊息
+                        socket.emit('messageUpdate', {
+                            text: s2tConverter(response),
+                            role: 'assistant',
+                            isReplace: true
+                        });
+                    } else {
+                        // 保存新的 AI 回應
+                        const assistantMessage = await prisma.message.create({
+                            data: {
+                                conversationId: parseInt(currentConversationId),
+                                content: response,
+                                role: 'assistant'
+                            }
+                        });
+                        
+                        console.log('AI 回應已保存，ID:', assistantMessage.id);
+                        
+                        // 更新本地歷史
+                        messageHistory.push({
+                            role: 'assistant',
+                            content: response
+                        });
+                        
+                        // 發送到前端顯示對話內容
+                        socket.emit('transcriptionFinal', {
+                            text: s2tConverter(response),
+                            role: 'assistant'
+                        });
+                    }
                     
-                    // 更新歷史
-                    messageHistory.push({
-                        role: 'assistant',
-                        content: response
-                    });
+                    // 清空現有音頻隊列
+                    socket.emit('clearAudioQueue');
                     
-                    // 發送到前端顯示對話內容（只要顯示一次）
-                    socket.emit('transcriptionFinal', {
-                        text: response,
-                        role: 'assistant'
-                    });
+                    // 建立一個獨特的 TTS 批次 ID，用於取消舊的處理
+                    const ttsProcessId = Date.now();
+                    socket.currentTTSProcessId = ttsProcessId;
                     
                     // 將LLM回應進行分段
                     const socketController = new SocketController();
                     const textSegments = socketController.segmentText(response);
                     
-                    // 依序處理每個分段並發送至前端
-                    for (let i = 0; i < textSegments.length; i++) {
-                        const segment = textSegments[i];
-                        if (!segment.trim()) continue;
-                        
-                        try {
-                            // 合成語音
-                            const audioBuffer = await synthesize(segment);
+                    // 非同步處理TTS，不等待每個段落完成
+                    (async () => {
+                        for (let i = 0; i < textSegments.length; i++) {
+                            const segment = textSegments[i];
+                            if (!segment.trim()) continue;
                             
-                            // 將音頻緩衝區轉換為 base64 數據 URL
-                            const base64Audio = audioBuffer.toString('base64');
-                            const audioDataUrl = `data:audio/wav;base64,${base64Audio}`;
-                            
-                            // 發送語音到前端播放
-                            socket.emit('tts', { audioUrl: audioDataUrl });
-                        } catch (error) {
-                            console.error(`處理第 ${i+1} 段文本 TTS 失敗:`, error);
+                            try {
+                                // 如果處理已被取消，或 process ID 不匹配，則停止
+                                if (socket.currentTTSProcessId !== ttsProcessId ||
+                                    (activeRequestController && activeRequestController.signal.aborted)) {
+                                    console.log('TTS 處理已被取消');
+                                    break;
+                                }
+                                
+                                const audioBuffer = await synthesize(segment);
+                                
+                                // 再次檢查 process ID 是否仍然匹配
+                                if (socket.currentTTSProcessId !== ttsProcessId) {
+                                    console.log('TTS 處理已過期，放棄發送');
+                                    break;
+                                }
+                                
+                                const base64Audio = audioBuffer.toString('base64');
+                                const audioDataUrl = `data:audio/wav;base64,${base64Audio}`;
+                                
+                                // 發送語音到前端播放
+                                socket.emit('tts', { 
+                                    audioUrl: audioDataUrl,
+                                    isNewResponse: i === 0, // 只有第一段標記為新回應
+                                    segmentIndex: i
+                                });
+                                
+                                // 添加短暫延遲以防止同時發送太多請求
+                                await new Promise(resolve => setTimeout(resolve, 50));
+                            } catch (error) {
+                                console.error(`處理第 ${i+1} 段文本 TTS 失敗:`, error);
+                            }
                         }
-                    }
-                    
+                    })();
                 } catch (error) {
-                    console.error('處理轉錄結果失敗:', error);
-                    socket.emit('error', '處理轉錄結果失敗: ' + error.message);
+                    if (error.name === 'AbortError') {
+                        console.log('請求已被使用者取消');
+                    } else {
+                        console.error('LLM 處理失敗:', error);
+                        socket.emit('error', 'LLM 處理失敗: ' + error.message);
+                    }
+                } finally {
+                    // 無論成功或失敗，重設狀態
+                    activeRequestController = null;
+                    isProcessingResponse = false;
                 }
             }
             
             // 停止語音辨識串流
-            socket.on('stopGoogleCloudStream', () => {
+            socket.on('stopAWSStream', () => {
                 isTranscribing = false;
                 console.log('語音辨識串流結束');
             });
