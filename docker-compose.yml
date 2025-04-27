@@ -6,6 +6,19 @@ volumes:
   mysql_data:
 
 services:
+  app:
+    build: 
+      context: ./app
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mysql
+    env_file:
+      - ./app/.env
+    environment:
+      - DATABASE_URL=mysql://aws-user:aws-password@mysql:3306/aws-hackathon
+    networks:
+      - aws-hackathon
   mysql:
     image: mysql:8.2
     environment:
