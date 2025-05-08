@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  gpt-sovits-infrence:
+    image: breakstring/gpt-sovits:latest   # please change the image name and tag base your environment. If the tag contains the word 'elite', such as "la$
+    container_name: gpt-sovits-infrence
+    environment:
+      - is_half=False
+      - is_share=True
+    volumes:
+      - ./SoVITS_weights:/workspace/SoVITS_weights
+      - ./config:/workspace/config
+      - ./sample_voice:/workspace/sample_voice
+      - ./config.py:/workspace/config.py
+    working_dir: /workspace
+    ports:
+      - "9880:9880"
+    shm_size: 16G
+    command: >
+      bash -c 'python api.py -dr "/workspace/sample_voice/sample.wav" -dt "今天天氣很好，而且出太陽，我在台北參加黑客松競賽。" -dl "zh"'
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: "all"
+            capabilities: [gpu]
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
