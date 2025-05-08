@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { ResizableLayout } from "@/components/layout/resizable-layout"
-import { ConversationProvider } from "@/context/conversation-context"
 
 export function PhoneSalesSystem() {
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false)
@@ -12,8 +11,6 @@ export function PhoneSalesSystem() {
   }
 
   return (
-    <ConversationProvider>
-      <ResizableLayout isPanelCollapsed={isPanelCollapsed} togglePanel={togglePanel} />
-    </ConversationProvider>
+    <ResizableLayout isPanelCollapsed={isPanelCollapsed} togglePanel={togglePanel} />
   )
 }
