@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button"
 
 export function ControlButtons() {
   return (
-    <div className="p-4 border-t mt-auto">
-      <div className="flex space-x-2">
+    <div className="p-4 w-full mt-auto">
+      <div className="flex w-full justify-center space-x-8">
         <form>
           <Button className="flex-1">
             <Mic className={"mr-2 h-4 w-4"} />

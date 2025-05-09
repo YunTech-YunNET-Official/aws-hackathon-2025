@@ -5,7 +5,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 export function CustomerSelector() {
   return (
-    <div className="p-4 border-b">
+    <div className="p-4 w-full">
+      <h1 className="text-lg font-bold mb-2">客戶選擇</h1>
       <div className="flex flex-col space-y-2">
         <div className="flex items-center space-x-2">
           <Select>

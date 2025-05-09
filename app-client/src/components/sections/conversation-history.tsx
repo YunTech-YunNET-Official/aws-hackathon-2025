@@ -4,7 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 export function ConversationHistory() {
   return (
-    <div className="p-4 border-b">
+    <div className="p-4 border-b w-full">
       <div className="flex items-center space-x-2">
         <Select>
           <SelectTrigger className="w-full">
