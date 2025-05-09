@@ -1,5 +1,4 @@
 import { cn } from "@/lib/utils"
-import { PanelToggleButton } from "@/components/ui-elements/panel-toggle-button"
 import { LeftPanel } from "@/components/panels/left-panel"
 import { RightPanel } from "@/components/panels/right-panel"
 
@@ -10,27 +9,20 @@ interface ResizableLayoutProps {
 
 export function ResizableLayout({ isPanelCollapsed, togglePanel }: ResizableLayoutProps) {
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background overflow-hidden">
       {/* 左側面板 */}
       <div
         className={cn(
-          "flex flex-col border-r transition-all duration-300 ease-in-out bg-card",
-          isPanelCollapsed ? "w-0 overflow-hidden" : "w-2/5",
+          "relative z-10 h-full transition-all duration-300 ease-in-out",
+          "bg-card border-r flex flex-col",
+          isPanelCollapsed ? "w-[60px]" : "w-[350px] max-w-[30%]",
         )}
       >
-        <LeftPanel isPanelCollapsed={isPanelCollapsed} />
-      </div>
-      
-      {/* 左側摺疊按鈕 */}
-      <PanelToggleButton isPanelCollapsed={isPanelCollapsed} togglePanel={togglePanel} isMobile={false} />
+        <LeftPanel isPanelCollapsed={isPanelCollapsed} togglePanel={togglePanel} />
+      </div>      
 
       {/* 右側面板 */}
-      <div
-        className={cn(
-          "flex flex-col transition-all duration-300 ease-in-out",
-          isPanelCollapsed ? "w-full" : "w-3/5",
-        )}
-      >
+      <div className="flex-1 w-full max-w-[1200px] mx-auto transition-all duration-300">
         <RightPanel />
       </div>
     </div>
